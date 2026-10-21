@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Ronu\PaymentGateways\Tests\Unit;
 
-use GuzzleHttp\ClientInterface;
 use PHPUnit\Framework\TestCase;
 use Ronu\PaymentGateways\Capability;
 use Ronu\PaymentGateways\Config\Environment;
@@ -17,6 +16,7 @@ use Ronu\PaymentGateways\Drivers\Stripe\StripeGateway;
 use Ronu\PaymentGateways\Exceptions\ConfigurationException;
 use Ronu\PaymentGateways\GatewayFactory;
 use Ronu\PaymentGateways\Laravel\PaymentGatewaysManager;
+use Ronu\PaymentGateways\Services;
 
 final class FactoryAndManagerTest extends TestCase
 {
@@ -93,7 +93,7 @@ final class FactoryAndManagerTest extends TestCase
     public function test_other_providers_plug_in_with_extend(): void
     {
         $gateway = $this->createStub(Gateway::class);
-        GatewayFactory::extend('acme', function (GatewayConfig $config, ?ClientInterface $client) use ($gateway): Gateway {
+        GatewayFactory::extend('acme', function (GatewayConfig $config, Services $services) use ($gateway): Gateway {
             $this->assertSame('pk_acme', $config->credential('api_key'));
 
             return $gateway;

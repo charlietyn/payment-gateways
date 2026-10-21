@@ -7,6 +7,7 @@ namespace Ronu\PaymentGateways\Drivers\PayPal;
 use GuzzleHttp\Client;
 use GuzzleHttp\ClientInterface;
 use GuzzleHttp\RequestOptions;
+use Psr\SimpleCache\CacheInterface;
 use InvalidArgumentException;
 use Ronu\PaymentGateways\Capability;
 use Ronu\PaymentGateways\CaptureMode;
@@ -24,6 +25,7 @@ use Ronu\PaymentGateways\NextAction;
 use Ronu\PaymentGateways\Payment;
 use Ronu\PaymentGateways\PaymentStatus;
 use Ronu\PaymentGateways\Refund;
+use Ronu\PaymentGateways\Services;
 use Ronu\PaymentGateways\Support\Headers;
 use Ronu\PaymentGateways\WebhookEvent;
 use Throwable;
@@ -67,14 +69,14 @@ final class PayPalGateway implements Gateway, HostedCheckout
     /** @var array<string, string> */
     private array $certificates = [];
 
-    public function __construct(private readonly GatewayConfig $config, ?ClientInterface $client = null)
+    public function __construct(private readonly GatewayConfig $config, private readonly Services $services = new Services())
     {
         if ($config->credentialOrNull('access_token') === null) {
             $config->credential('client_id');
             $config->credential('client_secret');
         }
 
-        $this->client = $client ?? new Client();
+        $this->client = $services->http ?? new Client();
         $this->http = new Transport(
             $config->resolveBaseUrl(self::HOSTS, self::EMULATOR_PROFILE),
             $this->client,
@@ -123,7 +125,7 @@ final class PayPalGateway implements Gateway, HostedCheckout
             ])]];
         }
 
-        $order = $this->http->request('POST', '/v2/checkout/orders', $this->headers($request->idempotencyKey), $body) ?? [];
+        $order = $this->api('POST', '/v2/checkout/orders', $request->idempotencyKey, $body) ?? [];
 
         return $this->toPayment($order, $request->returnUrl !== null);
     }
@@ -151,7 +153,7 @@ final class PayPalGateway implements Gateway, HostedCheckout
             return null;
         }
 
-        $order = $this->http->request('GET', '/v2/checkout/orders/' . $paymentId, $this->headers(), allowNotFound: true);
+        $order = $this->api('GET', '/v2/checkout/orders/' . $paymentId, null, allowNotFound: true);
 
         return $order === null ? null : $this->toPayment($order, false);
     }
@@ -167,12 +169,12 @@ final class PayPalGateway implements Gateway, HostedCheckout
                 if ($amount !== null && ! $amount->equals($order->amount)) {
                     throw new UnsupportedOperation('PayPal captures an order in full; partial capture needs CaptureMode::Manual.');
                 }
-                $this->http->request('POST', "/v2/checkout/orders/{$paymentId}/capture", $this->headers($key), (object) []);
+                $this->api('POST', "/v2/checkout/orders/{$paymentId}/capture", $key, (object) []);
 
                 return $this->reload($paymentId, 'capture');
             }
 
-            $this->http->request('POST', "/v2/checkout/orders/{$paymentId}/authorize", $this->headers("{$key}-authorize"), (object) []);
+            $this->api('POST', "/v2/checkout/orders/{$paymentId}/authorize", "{$key}-authorize", (object) []);
             $order = $this->reload($paymentId, 'authorize');
         }
 
@@ -182,7 +184,7 @@ final class PayPalGateway implements Gateway, HostedCheckout
         }
 
         $body = ['final_capture' => true] + ($amount !== null ? ['amount' => ['currency_code' => $amount->currency, 'value' => $amount->toDecimal()]] : []);
-        $this->http->request('POST', "/v2/payments/authorizations/{$authorization}/capture", $this->headers($key), $body);
+        $this->api('POST', "/v2/payments/authorizations/{$authorization}/capture", $key, $body);
 
         return $this->reload($paymentId, 'capture');
     }
@@ -197,7 +199,7 @@ final class PayPalGateway implements Gateway, HostedCheckout
             throw new UnsupportedOperation("Order {$paymentId} is {$order->status->value}; PayPal only voids authorizations.");
         }
 
-        $this->http->request('POST', "/v2/payments/authorizations/{$authorization}/void", $this->headers($idempotencyKey ?? "void-{$paymentId}"), (object) []);
+        $this->api('POST', "/v2/payments/authorizations/{$authorization}/void", $idempotencyKey ?? "void-{$paymentId}", (object) []);
 
         return $this->reload($paymentId, 'void');
     }
@@ -210,7 +212,7 @@ final class PayPalGateway implements Gateway, HostedCheckout
         }
 
         $body = $amount !== null ? ['amount' => ['currency_code' => $amount->currency, 'value' => $amount->toDecimal()]] : (object) [];
-        $refund = $this->http->request('POST', "/v2/payments/captures/{$order->transactionId}/refund", $this->headers($idempotencyKey), $body) ?? [];
+        $refund = $this->api('POST', "/v2/payments/captures/{$order->transactionId}/refund", $idempotencyKey, $body) ?? [];
 
         if (! isset($refund['id'])) {
             throw new GatewayException('PayPal returned a refund without id.');
@@ -302,7 +304,7 @@ final class PayPalGateway implements Gateway, HostedCheckout
             return null;
         }
 
-        $resource = $this->http->request('GET', $path . $event->resourceId, $this->headers(), allowNotFound: true) ?? [];
+        $resource = $this->api('GET', $path . $event->resourceId, null, allowNotFound: true) ?? [];
         foreach ((array) ($resource['links'] ?? []) as $link) {
             if (($link['rel'] ?? null) === 'up' && preg_match('#/v2/checkout/orders/([A-Za-z0-9-]+)$#', (string) ($link['href'] ?? ''), $m)) {
                 return $m[1];
@@ -379,7 +381,7 @@ final class PayPalGateway implements Gateway, HostedCheckout
     /** Read the order again after a write: the write response is not the whole order. */
     private function reload(string $paymentId, string $after): Payment
     {
-        $order = $this->http->request('GET', '/v2/checkout/orders/' . $paymentId, $this->headers(), allowNotFound: true);
+        $order = $this->api('GET', '/v2/checkout/orders/' . $paymentId, null, allowNotFound: true);
         if ($order === null) {
             throw new GatewayException("Order {$paymentId} vanished after {$after}.");
         }
@@ -434,6 +436,30 @@ final class PayPalGateway implements Gateway, HostedCheckout
         return $requestId !== null ? $headers + ['PayPal-Request-Id' => substr($requestId, 0, 108)] : $headers;
     }
 
+    /**
+     * An API call with the bearer token. A 401 drops the cached token and retries once (revoked or rotated).
+     *
+     * @param  array<string, mixed>|object|null  $json
+     * @return array<string, mixed>|null
+     */
+    private function api(string $method, string $path, ?string $requestId = null, array|object|null $json = null, bool $allowNotFound = false): ?array
+    {
+        try {
+            return $this->http->request($method, $path, $this->headers($requestId), $json, allowNotFound: $allowNotFound);
+        } catch (GatewayException $e) {
+            if ($e->httpStatus !== 401 || $this->config->credentialOrNull('access_token') !== null) {
+                throw $e;
+            }
+            $this->forgetToken();
+
+            return $this->http->request($method, $path, $this->headers($requestId), $json, allowNotFound: $allowNotFound);
+        }
+    }
+
+    /**
+     * Memory first, then the shared PSR-16 cache (Services::$cache), then OAuth. A broken
+     * cache never blocks a payment: it is skipped.
+     */
     private function accessToken(): string
     {
         $fixed = $this->config->credentialOrNull('access_token');
@@ -443,6 +469,13 @@ final class PayPalGateway implements Gateway, HostedCheckout
 
         if ($this->token !== null && time() < $this->tokenExpiresAt) {
             return $this->token;
+        }
+
+        $cached = $this->cache(fn (CacheInterface $cache) => $cache->get($this->tokenCacheKey()));
+        if (is_array($cached) && is_string($cached['token'] ?? null) && (int) ($cached['expires_at'] ?? 0) > time()) {
+            $this->tokenExpiresAt = (int) $cached['expires_at'];
+
+            return $this->token = $cached['token'];
         }
 
         $body = $this->http->request('POST', '/v1/oauth2/token', [
@@ -455,7 +488,41 @@ final class PayPalGateway implements Gateway, HostedCheckout
 
         $this->token = (string) $body['access_token'];
         $this->tokenExpiresAt = time() + max(60, (int) ($body['expires_in'] ?? 3600) - 60);
+        $this->cache(fn (CacheInterface $cache) => $cache->set(
+            $this->tokenCacheKey(),
+            ['token' => $this->token, 'expires_at' => $this->tokenExpiresAt],
+            $this->tokenExpiresAt - time(),
+        ));
 
         return $this->token;
+    }
+
+    private function forgetToken(): void
+    {
+        $this->token = null;
+        $this->tokenExpiresAt = 0;
+        $this->cache(fn (CacheInterface $cache) => $cache->delete($this->tokenCacheKey()));
+    }
+
+    /** One entry per API host and client id; PSR-16 keys allow neither ':' nor '/'. */
+    private function tokenCacheKey(): string
+    {
+        return 'ronu.payment_gateways.paypal_token.' . sha1($this->config->resolveBaseUrl(self::HOSTS, self::EMULATOR_PROFILE) . '|' . $this->config->credential('client_id'));
+    }
+
+    /**
+     * @param  callable(CacheInterface): mixed  $call
+     */
+    private function cache(callable $call): mixed
+    {
+        if ($this->services->cache === null) {
+            return null;
+        }
+
+        try {
+            return $call($this->services->cache);
+        } catch (Throwable) {
+            return null;
+        }
     }
 }

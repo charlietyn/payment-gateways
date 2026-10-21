@@ -47,17 +47,20 @@ final class GatewayFactory
         'paypal' => ['driver' => 'paypal', 'environment' => 'live'],
     ];
 
-    /** @var array<string, callable(GatewayConfig, ?ClientInterface): Gateway> */
+    /** @var array<string, callable(GatewayConfig, Services): Gateway> */
     private static array $extensions = [];
 
-    /** @param  array<string, mixed>  $config */
-    public static function make(string $name, array $config = [], ?ClientInterface $client = null): Gateway
+    /**
+     * @param  array<string, mixed>  $config
+     * @param  ClientInterface|Services|null  $services  A Guzzle client, or Services for a cache too.
+     */
+    public static function make(string $name, array $config = [], ClientInterface|Services|null $services = null): Gateway
     {
         $settings = self::config($name, $config);
         $driver = self::drivers()[$settings->driver]
             ?? throw new ConfigurationException("Payment gateway '{$name}': unknown driver '{$settings->driver}'. Registered: " . implode(', ', array_keys(self::drivers())) . '.');
 
-        return $driver($settings, $client);
+        return $driver($settings, Services::from($services));
     }
 
     /**
@@ -83,22 +86,22 @@ final class GatewayFactory
     /**
      * Plug in another provider:
      *
-     *     GatewayFactory::extend('adyen', fn (GatewayConfig $config, ?ClientInterface $http) => new AdyenGateway($config, $http));
+     *     GatewayFactory::extend('adyen', fn (GatewayConfig $config, Services $services) => new AdyenGateway($config, $services));
      *
-     * @param  callable(GatewayConfig, ?ClientInterface): Gateway  $factory
+     * @param  callable(GatewayConfig, Services): Gateway  $factory
      */
     public static function extend(string $driver, callable $factory): void
     {
         self::$extensions[$driver] = $factory;
     }
 
-    /** @return array<string, callable(GatewayConfig, ?ClientInterface): Gateway> */
+    /** @return array<string, callable(GatewayConfig, Services): Gateway> */
     public static function drivers(): array
     {
         return self::$extensions + [
-            'mercadopago' => fn (GatewayConfig $config, ?ClientInterface $client): Gateway => new MercadoPagoGateway($config, $client),
-            'stripe' => fn (GatewayConfig $config, ?ClientInterface $client): Gateway => new StripeGateway($config, $client),
-            'paypal' => fn (GatewayConfig $config, ?ClientInterface $client): Gateway => new PayPalGateway($config, $client),
+            'mercadopago' => fn (GatewayConfig $config, Services $services): Gateway => new MercadoPagoGateway($config, $services),
+            'stripe' => fn (GatewayConfig $config, Services $services): Gateway => new StripeGateway($config, $services),
+            'paypal' => fn (GatewayConfig $config, Services $services): Gateway => new PayPalGateway($config, $services),
         ];
     }
 
