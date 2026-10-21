@@ -10,6 +10,10 @@
             <directory>tests/Unit</directory>
         </testsuite>
         <!-- Needs a running Payment Emulator Lab: PAYMENT_EMULATOR_URL + PAYMENT_EMULATOR_ADMIN_TOKEN. Skipped otherwise. -->
+        <!-- Request bodies against the official OpenAPI specs: PAYMENT_CONTRACTS_DIR=…/payment-emulator-lab/contracts. Skipped otherwise. -->
+        <testsuite name="contract">
+            <directory>tests/Contract</directory>
+        </testsuite>
         <testsuite name="integration">
             <directory>tests/Integration</directory>
         </testsuite>

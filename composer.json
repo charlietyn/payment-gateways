@@ -43,6 +43,7 @@
   "scripts": {
     "test": "phpunit --testsuite unit",
     "test:integration": "phpunit --testsuite integration",
+    "test:contract": "phpunit --testsuite contract",
     "analyse": "phpstan analyse --memory-limit=512M"
   },
   "config": { "sort-packages": true },

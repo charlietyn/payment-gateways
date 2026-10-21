@@ -1,0 +1,28 @@
+name: Provider contracts
+
+# Checks every request the drivers send against the providers' current official
+# OpenAPI specs. Weekly, so an API change upstream shows up here.
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+      - run: composer update --no-interaction --no-progress --prefer-dist
+      - name: Download the official specs
+        run: |
+          mkdir -p contracts/plaza contracts/vector contracts/harbor
+          curl -fsSL -o contracts/plaza/orders.json https://raw.githubusercontent.com/mercadopago/openapi/main/by-product/orders/spec3.reference.json
+          curl -fsSL -o contracts/vector/spec3.json https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json
+          curl -fsSL -o contracts/harbor/orders-v2.json https://raw.githubusercontent.com/paypal/paypal-rest-api-specifications/main/openapi/checkout_orders_v2.json
+          curl -fsSL -o contracts/harbor/payments-v2.json https://raw.githubusercontent.com/paypal/paypal-rest-api-specifications/main/openapi/payments_payment_v2.json
+          sha256sum contracts/*/*.json
+      - run: PAYMENT_CONTRACTS_DIR=contracts php -d memory_limit=1G vendor/bin/phpunit --testsuite contract

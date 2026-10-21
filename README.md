@@ -330,6 +330,9 @@ GatewayFactory::make('eu', ['driver' => 'adyen', 'environment' => 'sandbox', 'cr
 composer test        # unitarios, Guzzle simulado
 composer analyse     # PHPStan nivel 8
 
+# Cada petición contra el OpenAPI oficial de su proveedor (los specs que guarda el lab)
+PAYMENT_CONTRACTS_DIR=../payment-emulator-lab/contracts composer test:contract
+
 # Contra un Payment Emulator Lab (crea sus propias aplicaciones)
 PAYMENT_EMULATOR_URL=http://localhost:8080 \
 PAYMENT_EMULATOR_ADMIN_TOKEN=… \
