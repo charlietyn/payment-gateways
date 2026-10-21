@@ -14,6 +14,7 @@ use Ronu\PaymentGateways\Config\GatewayConfig;
 use Ronu\PaymentGateways\Contracts\Gateway;
 use Ronu\PaymentGateways\Contracts\HostedCheckout;
 use Ronu\PaymentGateways\CreatePayment;
+use Ronu\PaymentGateways\EventType;
 use Ronu\PaymentGateways\Exceptions\GatewayException;
 use Ronu\PaymentGateways\Exceptions\InvalidWebhookSignature;
 use Ronu\PaymentGateways\Http\Transport;
@@ -246,12 +247,30 @@ final class StripeGateway implements Gateway, HostedCheckout
             resourceId: (string) ($object['id'] ?? ''),
             paymentId: $paymentId,
             payload: $event,
+            kind: self::eventType((string) $event['type']),
         );
     }
 
     public function paymentIdForEvent(WebhookEvent $event): ?string
     {
         return $event->paymentId;
+    }
+
+    /** Event type → canonical event. */
+    public static function eventType(string $type): EventType
+    {
+        return match ($type) {
+            'payment_intent.succeeded', 'charge.succeeded', 'charge.captured' => EventType::PaymentCaptured,
+            'payment_intent.amount_capturable_updated' => EventType::PaymentAuthorized,
+            'payment_intent.payment_failed', 'charge.failed', 'checkout.session.async_payment_failed' => EventType::PaymentFailed,
+            'payment_intent.canceled', 'charge.expired' => EventType::PaymentCanceled,
+            'charge.refunded', 'refund.created', 'refund.updated', 'charge.refund.updated' => EventType::PaymentRefunded,
+            'charge.dispute.created' => EventType::DisputeOpened,
+            'charge.dispute.closed' => EventType::DisputeClosed,
+            'checkout.session.completed', 'checkout.session.async_payment_succeeded' => EventType::CheckoutCompleted,
+            'checkout.session.expired' => EventType::CheckoutExpired,
+            default => str_starts_with($type, 'payment_intent.') || str_starts_with($type, 'charge.') ? EventType::PaymentUpdated : EventType::Unknown,
+        };
     }
 
     /** @param  array<string, mixed>  $intent  With `latest_charge` expanded, refunds and disputes count. */

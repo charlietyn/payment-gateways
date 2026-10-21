@@ -16,6 +16,7 @@ use Ronu\PaymentGateways\Config\GatewayConfig;
 use Ronu\PaymentGateways\Contracts\Gateway;
 use Ronu\PaymentGateways\Contracts\HostedCheckout;
 use Ronu\PaymentGateways\CreatePayment;
+use Ronu\PaymentGateways\EventType;
 use Ronu\PaymentGateways\Exceptions\GatewayException;
 use Ronu\PaymentGateways\Exceptions\InvalidWebhookSignature;
 use Ronu\PaymentGateways\Exceptions\UnsupportedOperation;
@@ -48,6 +49,8 @@ use Throwable;
  *  - webhooks.cert_hosts: hosts a signing certificate may be downloaded from
  *  - webhooks.certificate: a pinned PEM, instead of downloading one
  *  - webhooks.tolerance_seconds (300)
+ *  - webhooks.verification: `local` (RSA with the certificate, default) or `remote`
+ *    (PayPal's verify-webhook-signature API: one more call per webhook, no certificate handling)
  *  - options.brand_name, options.locale, options.shipping_preference (NO_SHIPPING for digital goods)
  */
 final class PayPalGateway implements Gateway, HostedCheckout
@@ -259,12 +262,16 @@ final class PayPalGateway implements Gateway, HostedCheckout
             throw new InvalidWebhookSignature(InvalidWebhookSignature::OUTSIDE_TOLERANCE);
         }
 
-        $manifest = sprintf('%s|%s|%s|%u', $transmissionId, $time, $webhookId, crc32($rawBody));
-        $certificate = $this->certificate($certUrl);
-        $decoded = base64_decode($signature, true);
+        if ($this->config->webhook('verification', 'local') === 'remote') {
+            $this->verifyRemotely($transmissionId, $time, $signature, (string) $certUrl, $algorithm, $webhookId, $rawBody);
+        } else {
+            $manifest = sprintf('%s|%s|%s|%u', $transmissionId, $time, $webhookId, crc32($rawBody));
+            $certificate = $this->certificate($certUrl);
+            $decoded = base64_decode($signature, true);
 
-        if ($decoded === false || openssl_verify($manifest, $decoded, $certificate, OPENSSL_ALGO_SHA256) !== 1) {
-            throw new InvalidWebhookSignature(InvalidWebhookSignature::MISMATCH);
+            if ($decoded === false || openssl_verify($manifest, $decoded, $certificate, OPENSSL_ALGO_SHA256) !== 1) {
+                throw new InvalidWebhookSignature(InvalidWebhookSignature::MISMATCH);
+            }
         }
 
         $event = json_decode($rawBody, true);
@@ -284,7 +291,51 @@ final class PayPalGateway implements Gateway, HostedCheckout
             resourceId: (string) ($resource['id'] ?? ''),
             paymentId: $type === 'checkout-order' ? (isset($resource['id']) ? (string) $resource['id'] : null) : (is_string($orderId) ? $orderId : null),
             payload: $event,
+            kind: self::eventType((string) $event['event_type']),
         );
+    }
+
+    /** Event type → canonical event. */
+    public static function eventType(string $type): EventType
+    {
+        return match ($type) {
+            'CHECKOUT.ORDER.APPROVED' => EventType::PaymentApproved,
+            'CHECKOUT.ORDER.COMPLETED', 'PAYMENT.CAPTURE.COMPLETED' => EventType::PaymentCaptured,
+            'CHECKOUT.ORDER.VOIDED', 'PAYMENT.AUTHORIZATION.VOIDED' => EventType::PaymentCanceled,
+            'PAYMENT.AUTHORIZATION.CREATED' => EventType::PaymentAuthorized,
+            'PAYMENT.CAPTURE.DENIED', 'PAYMENT.CAPTURE.DECLINED' => EventType::PaymentFailed,
+            'PAYMENT.CAPTURE.REFUNDED', 'PAYMENT.CAPTURE.REVERSED' => EventType::PaymentRefunded,
+            'CUSTOMER.DISPUTE.CREATED' => EventType::DisputeOpened,
+            'CUSTOMER.DISPUTE.RESOLVED' => EventType::DisputeClosed,
+            default => str_starts_with($type, 'CHECKOUT.ORDER.') || str_starts_with($type, 'PAYMENT.') ? EventType::PaymentUpdated : EventType::Unknown,
+        };
+    }
+
+    /**
+     * POST /v1/notifications/verify-webhook-signature. The event goes back as decoded
+     * objects, not arrays, so `{}` stays `{}`. A network failure is a GatewayException:
+     * answer 5xx and PayPal redelivers.
+     */
+    private function verifyRemotely(string $transmissionId, string $time, string $signature, string $certUrl, string $algorithm, string $webhookId, string $rawBody): void
+    {
+        $event = json_decode($rawBody);
+        if (! is_object($event) || $certUrl === '') {
+            throw new InvalidWebhookSignature(InvalidWebhookSignature::MALFORMED);
+        }
+
+        $answer = $this->api('POST', '/v1/notifications/verify-webhook-signature', null, [
+            'auth_algo' => $algorithm,
+            'cert_url' => $certUrl,
+            'transmission_id' => $transmissionId,
+            'transmission_sig' => $signature,
+            'transmission_time' => $time,
+            'webhook_id' => $webhookId,
+            'webhook_event' => $event,
+        ]) ?? [];
+
+        if (($answer['verification_status'] ?? null) !== 'SUCCESS') {
+            throw new InvalidWebhookSignature(InvalidWebhookSignature::MISMATCH);
+        }
     }
 
     /** A capture or authorization event names its order through the resource's `up` link. */

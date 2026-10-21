@@ -207,8 +207,12 @@ sequenceDiagram
 ```
 
 ```php
-$event   = $gateway->parseWebhook($request->headers(), $request->rawBody()); // InvalidWebhookSignature ⇒ 401
-$payment = $gateway->getPayment($gateway->paymentIdForEvent($event));       // el evento solo avisa: se relee el pago
+$event = $gateway->parseWebhook($request->headers(), $request->rawBody()); // InvalidWebhookSignature ⇒ 401
+if ($events->alreadyProcessed($event)) {            // las pasarelas reenvían: responde 200 y para
+    return response('', 200);
+}
+
+$payment = $gateway->getPayment($gateway->paymentIdForEvent($event));     // el evento solo avisa: se relee el pago
 
 if ($payment->status->awaitsMerchant()) {           // PayPal aprobado o captura manual
     $payment = $gateway->capture($payment->id, idempotencyKey: "capture-{$payment->id}");
@@ -217,8 +221,36 @@ if ($payment->status === PaymentStatus::Captured && $payment->matches('ORDER-123
     // confirmar el pedido, una sola vez
 }
 
+$events->markProcessed($event);                     // después de que todo salió bien
+
 $gateway->refund($payment->id, Money::fromDecimal('500', 'ARS'), 'refund-ORDER-123-1'); // null = todo
 ```
+
+`$events` es un `Contracts\EventDeduplicator`: `CacheDeduplicator` (PSR-16, compartido
+entre procesos; en Laravel ya viene registrado) o `InMemoryDeduplicator`.
+
+<details>
+<summary><b>Eventos comunes: <code>$event->kind</code></b></summary>
+
+Cada driver traduce el tipo de evento del proveedor (`$event->type`) a un `EventType`
+común. Úsalo para decidir qué hacer, nunca como el estado del pago: ese se relee siempre.
+
+| `EventType` | Mercado Pago | Stripe | PayPal |
+|---|---|---|---|
+| `PaymentUpdated` | `payment.*`, `order.updated` | otros `payment_intent.*` / `charge.*` | otros `PAYMENT.*` |
+| `PaymentApproved` | — | — | `CHECKOUT.ORDER.APPROVED` |
+| `PaymentAuthorized` | — | `payment_intent.amount_capturable_updated` | `PAYMENT.AUTHORIZATION.CREATED` |
+| `PaymentCaptured` | `order.processed` | `payment_intent.succeeded` | `PAYMENT.CAPTURE.COMPLETED` |
+| `PaymentFailed` | `order.failed` | `payment_intent.payment_failed` | `PAYMENT.CAPTURE.DENIED` |
+| `PaymentCanceled` | `order.canceled`, `order.expired` | `payment_intent.canceled` | `PAYMENT.AUTHORIZATION.VOIDED` |
+| `PaymentRefunded` | `order.refunded` | `charge.refunded`, `refund.*` | `PAYMENT.CAPTURE.REFUNDED` |
+| `DisputeOpened` / `DisputeClosed` | `chargebacks` | `charge.dispute.created` / `.closed` | `CUSTOMER.DISPUTE.CREATED` / `.RESOLVED` |
+| `CheckoutCompleted` / `CheckoutExpired` | — | `checkout.session.completed` / `.expired` | — |
+
+PayPal también puede verificar la firma con su API en vez de con el certificado:
+`'webhooks' => ['id' => …, 'verification' => 'remote']`.
+
+</details>
 
 <details>
 <summary><b>Estados y errores</b></summary>
