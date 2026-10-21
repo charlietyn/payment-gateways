@@ -3,6 +3,11 @@
   "description": "One payment contract, three gateways: Mercado Pago Orders, Stripe PaymentIntents and PayPal Orders v2 â€” testable against the Payment Emulator Lab (Plaza, Vector, Harbor).",
   "type": "library",
   "license": "MIT",
+  "homepage": "https://github.com/charlietyn/payment-gateways",
+  "support": {
+    "issues": "https://github.com/charlietyn/payment-gateways/issues",
+    "source": "https://github.com/charlietyn/payment-gateways"
+  },
   "keywords": ["payments", "payment-gateway", "checkout", "mercadopago", "stripe", "paypal", "webhooks", "laravel"],
   "authors": [{ "name": "RonuSoftware" }],
   "require": {

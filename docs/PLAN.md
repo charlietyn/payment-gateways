@@ -10,7 +10,7 @@ a la API real cambiando solo la configuración.
 | `stripe` | Stripe | **Vector** | PaymentIntents + Refunds (`/v1/payment_intents`, `/v1/refunds`) |
 | `paypal` | PayPal | **Harbor** | OAuth + Orders v2 + Payments v2 |
 
-Primer consumidor: `eros/payments` (`D:\www\eros_experience\packages\payments`),
+Primer consumidor: `eros/payments`,
 cuyo adaptador Orders se reemplaza por el driver `mercadopago` de aquí.
 
 ## 1. Principios

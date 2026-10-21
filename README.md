@@ -1,38 +1,73 @@
-# ronu/payment-gateways
+<div align="center">
 
-**Un contrato de pagos para cualquier pasarela.** Vienen tres drivers —Mercado Pago,
-Stripe y PayPal— con el mismo código de consumidor, probados de punta a punta
-contra el **Payment Emulator Lab** (perfiles Plaza, Vector y Harbor). Pasar del
-emulador a la API real es cambiar `environment` y las credenciales.
+# 💳 ronu/payment-gateways
 
-PHP ≥ 8.2, Guzzle 7. Núcleo sin framework; puente Laravel opcional.
+**Un contrato de pagos para cualquier pasarela.**<br>
+*One payment contract for any gateway.*
+
+Mercado Pago · Stripe · PayPal — el mismo código, en el emulador y en producción.
+
+[![CI](https://github.com/charlietyn/payment-gateways/actions/workflows/ci.yml/badge.svg)](https://github.com/charlietyn/payment-gateways/actions/workflows/ci.yml)
+![PHP](https://img.shields.io/badge/PHP-%E2%89%A5%208.2-777BB4?logo=php&logoColor=white)
+![PHPStan](https://img.shields.io/badge/PHPStan-level%208-2a5ea7)
+![Guzzle](https://img.shields.io/badge/HTTP-Guzzle%207-orange)
+![Laravel](https://img.shields.io/badge/Laravel-11%20%7C%2012-FF2D20?logo=laravel&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+[Instalar](#-instalar) · [Configurar](#%EF%B8%8F-configurar) · [Cobrar](#-tres-formas-de-cobrar) · [Webhooks](#-el-flujo-común) · [Nueva pasarela](#-añadir-otra-pasarela) · [Plan](docs/PLAN-2.md)
+
+</div>
+
+---
+
+## ✨ Por qué
+
+| | |
+|---|---|
+| 🔌 **Un contrato** | Tu código habla de `Payment`, `Money`, `Refund` y `WebhookEvent`, nunca de `preference`, `payment_intent` ni `purchase_units`. |
+| 🧪 **Emulador → real sin tocar código** | Probado de punta a punta contra el **Payment Emulator Lab** (Plaza, Vector, Harbor). Para ir a producción cambias `environment` y las credenciales. |
+| 🛒 **Página del proveedor o formulario propio** | Checkout Pro, Checkout Session y aprobación de PayPal, o los tokens de Brick y Elements. |
+| 🔐 **Seguro por defecto** | Idempotencia en todas las escrituras, firmas de webhook verificadas sobre el cuerpo crudo, y si falta un secreto el webhook se rechaza. |
+| 🧩 **Extensible** | Una pasarela nueva se registra con `GatewayFactory::extend()`, sin tocar la biblioteca. |
+| 💰 **Dinero sin floats** | Importes en unidades menores con moneda ISO-4217; cada driver lo convierte al formato que pide su API. |
+
+| Pasarela | Driver | Emulador | APIs |
+|---|---|---|---|
+| <img src="https://cdn.simpleicons.org/mercadopago" width="16"> Mercado Pago | `mercadopago` | Plaza | Orders · Checkout Pro · Payments |
+| <img src="https://cdn.simpleicons.org/stripe" width="16"> Stripe | `stripe` | Vector | PaymentIntents · Refunds · Checkout Sessions |
+| <img src="https://cdn.simpleicons.org/paypal" width="16"> PayPal | `paypal` | Harbor | OAuth · Orders v2 · Payments v2 |
+
+## 📦 Instalar
 
 ```bash
 composer require ronu/payment-gateways
 ```
 
-## Configuración
+PHP ≥ 8.2 con `ext-json` y `ext-openssl`. El núcleo no depende de ningún framework; el puente de Laravel se registra solo.
 
-Cada pasarela tiene las mismas secciones. Lo que falta o sobra falla **al
-construirla**, con un mensaje que dice qué clave es.
+## ⚙️ Configurar
+
+Todas las pasarelas usan **las mismas secciones**. Si falta o sobra algo, falla
+al construir el gateway y el mensaje dice qué clave es (`credentials.secret_key is required`).
 
 ```php
 use Ronu\PaymentGateways\GatewayFactory;
 
 $gateway = GatewayFactory::make('tienda', [
-    'driver'      => 'mercadopago',          // mercadopago | stripe | paypal | uno tuyo (extend)
+    'driver'      => 'mercadopago',          // mercadopago | stripe | paypal | uno tuyo
     'environment' => 'emulator',             // emulator | sandbox | live
 
     'credentials' => ['access_token' => getenv('MERCADOPAGO_ACCESS_TOKEN')],
     'webhooks'    => ['secret' => getenv('MERCADOPAGO_WEBHOOK_SECRET')],
     'options'     => ['currency' => 'ARS'],
 
-    // solo con environment = emulator
     'emulator'    => ['api_url' => 'http://localhost:8080', 'checkout_url' => 'http://localhost:3001'],
-
     'http'        => ['timeout' => 15, 'connect_timeout' => 5],
 ]);
 ```
+
+<details>
+<summary><b>Claves por pasarela</b></summary>
 
 | Sección | Mercado Pago | Stripe | PayPal |
 |---|---|---|---|
@@ -41,14 +76,18 @@ $gateway = GatewayFactory::make('tienda', [
 | `options` | `currency`, `ticket_method`, `notification_url`, `statement_descriptor` | `api_version` (fíjala) | `brand_name`, `locale`, `shipping_preference` |
 | `emulator` | `api_url`, `checkout_url`, `scenario` | `api_url`, `scenario` | `api_url` |
 
-Un valor `null` (un `env()` sin definir) se ignora y deja el valor por defecto.
+Un `null` (un `env()` sin definir) se ignora y deja el valor por defecto.
 `base_url` sustituye el host del entorno (proxies, mocks).
 
-### Presets
+</details>
 
-Atajos que rellenan `driver`, `environment` y valores por defecto; lo que tú
-pases gana: `GatewayFactory::make('plaza', ['credentials' => […], 'emulator' => […]])`
-o `['preset' => 'plaza', …]` con cualquier nombre.
+<details>
+<summary><b>Presets: atajos con valores por defecto</b></summary>
+
+```php
+GatewayFactory::make('plaza', ['credentials' => […], 'emulator' => ['api_url' => …]]);
+GatewayFactory::make('cobros', ['preset' => 'stripe', 'credentials' => […]]);  // cualquier nombre
+```
 
 | Driver | Emulador | Sandbox | Live |
 |---|---|---|---|
@@ -56,13 +95,16 @@ o `['preset' => 'plaza', …]` con cualquier nombre.
 | `stripe` | `vector` | `stripe_test` | `stripe` |
 | `paypal` | `harbor` | `paypal_sandbox` | `paypal` |
 
-### Laravel
+</details>
+
+<details>
+<summary><b>Laravel</b></summary>
 
 ```bash
 php artisan vendor:publish --tag=payment-gateways-config
 ```
 
-`config/payment-gateways.php` trae las tres pasarelas comentadas; cada una elige
+`config/payment-gateways.php` trae las tres pasarelas comentadas. Cada una elige
 su entorno con `MERCADOPAGO_ENVIRONMENT`, `STRIPE_ENVIRONMENT` y `PAYPAL_ENVIRONMENT`.
 
 ```php
@@ -70,18 +112,22 @@ app(\Ronu\PaymentGateways\Contracts\Gateway::class);                            
 app(\Ronu\PaymentGateways\Laravel\PaymentGatewaysManager::class)->gateway('paypal');  // una por nombre
 ```
 
-## Tres formas de cobrar
+</details>
+
+## 🛒 Tres formas de cobrar
 
 | | Mercado Pago | Stripe | PayPal |
 |---|---|---|---|
-| **A. Página del proveedor**: `createCheckout()` | Checkout Pro (`init_point`) | Checkout Session (`url`) | Aprobación de la orden |
-| **B. Formulario incrustado**: `createPayment()` + `PaymentMethod` | Card Payment Brick → `PaymentMethod::card($token, 'visa')` | Elements → `PaymentMethod::card('pm_…')`, o sin token y `clientSecret` | JS SDK con el id de la orden |
-| **Ticket**: `createPayment()` sin método | Pago Fácil, Rapipago… (`ticket_url`) | — | — |
+| **A. Página del proveedor** · `createCheckout()` | Checkout Pro | Checkout Session | Aprobación de la orden |
+| **B. Formulario incrustado** · `createPayment()` + `PaymentMethod` | Card Payment Brick | Elements (`pm_…`) o `clientSecret` | JS SDK con el id de la orden |
+| **Ticket** · `createPayment()` sin método | Pago Fácil, Rapipago… | — | — |
 
-### A. Página del proveedor (recomendado)
+### A · Página del proveedor (recomendado)
+
+Tu servidor nunca ve la tarjeta y el frontend solo redirige.
 
 ```php
-use Ronu\PaymentGateways\{CreatePayment, Money, Payer, CheckoutStatus};
+use Ronu\PaymentGateways\{CreatePayment, CheckoutStatus, Money, Payer};
 
 $checkout = $gateway->createCheckout(new CreatePayment(
     amount: Money::fromDecimal('1500.50', 'ARS'),   // el importe lo decide tu servidor
@@ -92,39 +138,59 @@ $checkout = $gateway->createCheckout(new CreatePayment(
     cancelUrl: 'https://shop.example/carrito',
     payer: Payer::fromFullName('Ana Pérez', 'ana@example.test', '30111222'),
 ));
-// Guarda $checkout->id y redirige a $checkout->url.
 
-// De vuelta en returnUrl (o al llegar el webhook):
+return redirect($checkout->url);                    // guarda $checkout->id
+
+// De vuelta en returnUrl, o al llegar el webhook:
 $checkout = $gateway->getCheckout($checkoutId);
 if ($checkout?->status === CheckoutStatus::Completed) {
-    $payment = $gateway->getPayment($checkout->paymentId);   // y sigue el flujo común
+    $payment = $gateway->getPayment($checkout->paymentId);
 }
 ```
 
-Stripe: pon `{CHECKOUT_SESSION_ID}` en `returnUrl` para recibir el id en tu página.
-Mercado Pago Checkout Pro cobra al momento (sin captura manual).
+> Stripe: pon `{CHECKOUT_SESSION_ID}` en `returnUrl` para recibir el id de la sesión.
+> Checkout Pro de Mercado Pago cobra en el momento (no admite captura manual).
 
-### B. Formulario incrustado
+### B · Formulario incrustado
 
 ```php
 use Ronu\PaymentGateways\PaymentMethod;
 
-// Mercado Pago: token y payment_method_id que devuelve el Brick.
-$payment = $gateway->createPayment(new CreatePayment(…, paymentMethod: PaymentMethod::card($token, 'visa', installments: 3)));
+// Mercado Pago: el token y el payment_method_id que devuelve el Brick
+$gateway->createPayment(new CreatePayment(…, paymentMethod: PaymentMethod::card($token, 'visa', installments: 3)));
 
-// Stripe: confirmar en el servidor con el PaymentMethod de Elements…
-$payment = $gateway->createPayment(new CreatePayment(…, returnUrl: $url3ds, paymentMethod: PaymentMethod::card('pm_…')));
-// …o crearlo sin token y confirmarlo en el navegador con $payment->clientSecret.
+// Stripe: se confirma en el servidor con el PaymentMethod de Elements…
+$gateway->createPayment(new CreatePayment(…, returnUrl: $url3ds, paymentMethod: PaymentMethod::card('pm_…')));
+// …o se crea sin token y el navegador lo confirma con $payment->clientSecret
 ```
 
-### El flujo común
+## 🔁 El flujo común
+
+```mermaid
+sequenceDiagram
+    participant S as Tu servidor
+    participant G as Gateway
+    participant P as Proveedor
+    participant B as Comprador
+    S->>G: createCheckout() / createPayment()
+    G->>P: POST (con clave de idempotencia)
+    G-->>S: Checkout / Payment + URL
+    S-->>B: redirige
+    B->>P: paga
+    P-->>S: webhook firmado
+    S->>G: parseWebhook(headers, cuerpo crudo)
+    S->>G: getPayment(paymentIdForEvent)
+    alt approved / authorized
+        S->>G: capture()
+    end
+    S->>S: matches(referencia, importe) → confirmar el pedido una vez
+```
 
 ```php
-// Webhook: verifica con el cuerpo CRUDO; el evento es un aviso.
-$event = $gateway->parseWebhook($request->headers(), $request->rawBody()); // InvalidWebhookSignature ⇒ 401
-$payment = $gateway->getPayment($gateway->paymentIdForEvent($event));
+$event   = $gateway->parseWebhook($request->headers(), $request->rawBody()); // InvalidWebhookSignature ⇒ 401
+$payment = $gateway->getPayment($gateway->paymentIdForEvent($event));       // el evento solo avisa: se relee el pago
 
-if ($payment->status->awaitsMerchant()) {              // PayPal aprobado / captura manual
+if ($payment->status->awaitsMerchant()) {           // PayPal aprobado o captura manual
     $payment = $gateway->capture($payment->id, idempotencyKey: "capture-{$payment->id}");
 }
 if ($payment->status === PaymentStatus::Captured && $payment->matches('ORDER-123', $importe)) {
@@ -134,27 +200,53 @@ if ($payment->status === PaymentStatus::Captured && $payment->matches('ORDER-123
 $gateway->refund($payment->id, Money::fromDecimal('500', 'ARS'), 'refund-ORDER-123-1'); // null = todo
 ```
 
-## Capacidades
+<details>
+<summary><b>Estados y errores</b></summary>
 
-Pregunta antes de llamar, en vez de capturar `UnsupportedOperation`:
+`created · requires_action · processing · approved · authorized · captured · partially_refunded · refunded · canceled · failed · disputed · unknown`
+
+- `approved`: el comprador aprobó y **falta que cobres** (`capture()`), como en PayPal.
+- `authorized`: captura manual pendiente (`capture()` o `cancel()`).
+- `unknown`: un estado que la biblioteca no conoce. **No cumplas el pedido.**
+
+`GatewayException::$retryable` es `true` ante fallos de red, 408, 429 y 5xx: reintenta
+con la **misma** clave de idempotencia. `$providerCode` trae el código de error del proveedor.
+Si reutilizas una clave con otro cuerpo, la respuesta es un 409 y no conviene reintentar.
+
+</details>
+
+## 🧭 Capacidades
 
 ```php
 if ($gateway->supports(Capability::PartialCapture)) { … }
 ```
 
 | | Mercado Pago | Stripe | PayPal |
-|---|---|---|---|
-| `HostedCheckout` | ✓ | ✓ | ✓ |
-| `EmbeddedCheckout` | ✓ | ✓ | ✓ |
-| `ManualCapture` | ✓ (Orders) | ✓ | ✓ |
-| `PartialCapture` | — | ✓ | ✓ (con captura manual) |
-| `PartialRefund` | ✓ | ✓ | ✓ |
-| `OfflinePayments` | ✓ | — | — |
+|---|:-:|:-:|:-:|
+| `HostedCheckout` | ✅ | ✅ | ✅ |
+| `EmbeddedCheckout` | ✅ | ✅ | ✅ |
+| `ManualCapture` | ✅ Orders | ✅ | ✅ |
+| `PartialCapture` | — | ✅ | ✅ manual |
+| `PartialRefund` | ✅ | ✅ | ✅ |
+| `OfflinePayments` | ✅ | — | — |
 
-## Añadir otra pasarela
+<details>
+<summary><b>Detalles por pasarela</b></summary>
+
+| | Mercado Pago | Stripe | PayPal |
+|---|---|---|---|
+| Idempotencia | `X-Idempotency-Key` | `Idempotency-Key` | `PayPal-Request-Id` |
+| Formato | JSON, importes decimales | **formulario**, unidades menores | JSON, importes decimales |
+| Ids | `ORD…` (Orders), numérico (Payments) | `pi_…`, `cs_…` | id de la orden |
+| Cobro | automático o `capture()` | automático o `capture()` | **siempre `capture()`** tras aprobar |
+| Webhook | `x-signature`: HMAC de `id;request-id;ts` | `stripe-signature`: HMAC de `t.cuerpo` | RSA-SHA256 de `id\|time\|webhook_id\|crc32(cuerpo)` |
+
+</details>
+
+## 🧩 Añadir otra pasarela
 
 Implementa `Contracts\Gateway` (y `Contracts\HostedCheckout` si el proveedor tiene
-página propia), recibe un `Config\GatewayConfig` y regístralo:
+página propia), recibe un `Config\GatewayConfig` y regístrala:
 
 ```php
 GatewayFactory::extend('adyen', fn (GatewayConfig $config, ?ClientInterface $http) => new AdyenGateway($config, $http));
@@ -162,58 +254,33 @@ GatewayFactory::extend('adyen', fn (GatewayConfig $config, ?ClientInterface $htt
 GatewayFactory::make('eu', ['driver' => 'adyen', 'environment' => 'sandbox', 'credentials' => ['api_key' => '…']]);
 ```
 
-`GatewayConfig` te da `credential()` (obligatoria, con mensaje claro), `option()`,
+`GatewayConfig` ofrece `credential()` (obligatoria y con mensaje claro), `option()`,
 `webhook()`, `isEmulator()` y `resolveBaseUrl($hosts, $perfilDelEmulador)`.
 
-## Estados
+## ⚠️ Límites conocidos
 
-`created · requires_action · processing · approved · authorized · captured ·
-partially_refunded · refunded · canceled · failed · disputed · unknown`
-
-- `approved`: el comprador aprobó y **falta que cobres** (`capture()`), como en PayPal.
-- `authorized`: captura manual pendiente (`capture()` o `cancel()`).
-- `unknown`: un estado que la biblioteca no conoce. No cumplas el pedido.
-
-## Errores
-
-`GatewayException::$retryable` decide: `true` (red, 408, 429, 5xx) ⇒ reintenta
-con la **misma** clave de idempotencia. `$providerCode` trae el código del proveedor.
-Una clave reutilizada con otro cuerpo responde 409 y no es reintentable.
-
-## Por proveedor
-
-| | Mercado Pago | Stripe | PayPal |
-|---|---|---|---|
-| APIs | Orders, Checkout Pro (preferences), Payments | PaymentIntents, Refunds, Checkout Sessions | OAuth, Orders v2, Payments v2 |
-| Idempotencia | `X-Idempotency-Key` | `Idempotency-Key` | `PayPal-Request-Id` |
-| Formato | JSON, importes decimales | **formulario**, unidades menores | JSON, importes decimales |
-| Ids | `ORD…` (Orders), numérico (Payments) | `pi_…`, `cs_…` | id de orden |
-| Cobro | automático o `capture()` | automático o `capture()` | **siempre `capture()`** tras aprobar |
-| Webhook | `x-signature`: HMAC de `id;request-id;ts` | `stripe-signature`: HMAC de `t.cuerpo` | RSA-SHA256 de `id\|time\|webhook_id\|crc32(cuerpo)` |
-
-## Límites conocidos
-
-- **El emulador no tiene Checkout Pro ni Checkout Sessions.** En `environment: emulator`,
+- **El emulador no tiene Checkout Pro ni Checkout Sessions.** Con `environment: emulator`,
   `createCheckout()` de Mercado Pago y Stripe usa las páginas propias de Plaza y Vector.
-  Contra la API real, esos dos caminos están probados con respuestas simuladas según la
-  documentación, todavía **no contra el sandbox** (fase M10 de `docs/PLAN-2.md`).
-- **Mercado Pago Checkout Pro**: `getCheckout()` busca el pago por `external_reference`;
-  usa una referencia única por checkout.
-- **Stripe**: un PaymentIntent no refleja devoluciones; `getPayment()` sigue en
-  `captured`. Usa el `Refund` devuelto.
-- **PayPal**: el certificado de firma solo se descarga de `webhooks.cert_hosts`
-  (por defecto los hosts de PayPal); en el emulador se añade su host.
+  Contra las APIs reales esos dos caminos solo están probados con respuestas simuladas
+  según la documentación; **aún no contra el sandbox** ([M10](docs/PLAN-2.md)).
+- **Checkout Pro**: `getCheckout()` busca el pago por `external_reference`, así que la referencia debe ser única por checkout.
+- **Stripe**: un PaymentIntent no refleja las devoluciones, así que `getPayment()` sigue en `captured`. Usa el `Refund` que devuelve `refund()`.
+- **PayPal**: el certificado de firma solo se descarga de los hosts de `webhooks.cert_hosts`.
 
-## Tests
+## 🧪 Tests
 
 ```bash
-composer test        # unitarios (Guzzle simulado)
+composer test        # unitarios, Guzzle simulado
 composer analyse     # PHPStan nivel 8
 
-# Contra un emulador real (crea sus propias aplicaciones):
+# Contra un Payment Emulator Lab (crea sus propias aplicaciones)
 PAYMENT_EMULATOR_URL=http://localhost:8080 \
 PAYMENT_EMULATOR_ADMIN_TOKEN=… \
 PAYMENT_EMULATOR_SINK_PORT=8095 composer test:integration
 ```
 
-Plan: [docs/PLAN-2.md](docs/PLAN-2.md) · historia: [docs/PLAN.md](docs/PLAN.md).
+---
+
+<div align="center">
+<sub>MIT · Desarrollado por <b>RonuSoftware</b> · No está afiliado a Mercado Pago, Stripe ni PayPal; sus nombres solo identifican las APIs compatibles.</sub>
+</div>
