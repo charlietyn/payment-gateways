@@ -128,7 +128,7 @@ final class MercadoPagoGatewayTest extends TestCase
     public function test_errors_say_whether_to_retry(): void
     {
         $http = new MockHttp([MockHttp::json(500, ['error' => 'internal_error']), MockHttp::json(400, ['error' => 'bad_request'])]);
-        $gateway = $this->gateway($http);
+        $gateway = $this->gateway($http, ['http' => ['retries' => 0]]);   // retries: TransportTest
 
         foreach ([[true, 500, 'internal_error'], [false, 400, 'bad_request']] as [$retryable, $status, $code]) {
             try {

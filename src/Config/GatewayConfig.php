@@ -17,7 +17,7 @@ use Ronu\PaymentGateways\Exceptions\ConfigurationException;
  *         'webhooks'    => ['secret' => '…'],
  *         'options'     => ['currency' => 'ARS'],  // driver behaviour, see each driver
  *         'emulator'    => ['api_url' => 'http://localhost:8080', 'checkout_url' => '…', 'scenario' => '…'],
- *         'http'        => ['timeout' => 15, 'connect_timeout' => 5],
+ *         'http'        => ['timeout' => 15, 'connect_timeout' => 5, 'retries' => 2, 'retry_delay_ms' => 250],
  *         'base_url'    => null,                   // overrides the environment's host (proxies, mocks)
  *     ]
  */
@@ -157,5 +157,22 @@ final readonly class GatewayConfig
     public function connectTimeout(): float
     {
         return (float) ($this->http['connect_timeout'] ?? 5);
+    }
+
+    /** Extra attempts for 408, 429, 5xx and network failures. Writes need an idempotency key. */
+    public function retries(): int
+    {
+        return max(0, (int) ($this->http['retries'] ?? 2));
+    }
+
+    public function retryDelayMs(): int
+    {
+        return max(0, (int) ($this->http['retry_delay_ms'] ?? 250));
+    }
+
+    /** A longer Retry-After fails the call (retryable) instead of holding the request. */
+    public function maxRetryDelayMs(): int
+    {
+        return max(0, (int) ($this->http['max_retry_delay_ms'] ?? 5_000));
     }
 }

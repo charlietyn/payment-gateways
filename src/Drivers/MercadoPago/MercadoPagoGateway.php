@@ -60,11 +60,10 @@ final class MercadoPagoGateway implements Gateway, HostedCheckout
     {
         $config->credential('access_token');
 
-        $this->http = new Transport(
+        $this->http = Transport::for(
+            $config,
             $config->resolveBaseUrl(self::HOSTS, self::EMULATOR_PROFILE),
-            $services->http,
-            $config->timeout(),
-            $config->connectTimeout(),
+            $services,
             fn (array $body): ?string => isset($body['error']) ? (string) $body['error']
                 : (isset($body['errors'][0]['code']) ? (string) $body['errors'][0]['code'] : null),
         );

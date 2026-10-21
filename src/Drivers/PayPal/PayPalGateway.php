@@ -77,11 +77,10 @@ final class PayPalGateway implements Gateway, HostedCheckout
         }
 
         $this->client = $services->http ?? new Client();
-        $this->http = new Transport(
+        $this->http = Transport::for(
+            $config,
             $config->resolveBaseUrl(self::HOSTS, self::EMULATOR_PROFILE),
-            $this->client,
-            $config->timeout(),
-            $config->connectTimeout(),
+            $services,
             fn (array $body): ?string => isset($body['details'][0]['issue']) ? (string) $body['details'][0]['issue']
                 : (isset($body['name']) ? (string) $body['name'] : (isset($body['error']) ? (string) $body['error'] : null)),
         );

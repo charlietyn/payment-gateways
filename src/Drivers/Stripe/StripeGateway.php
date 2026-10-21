@@ -55,11 +55,10 @@ final class StripeGateway implements Gateway, HostedCheckout
     {
         $config->credential('secret_key');
 
-        $this->http = new Transport(
+        $this->http = Transport::for(
+            $config,
             $config->resolveBaseUrl(self::HOSTS, self::EMULATOR_PROFILE),
-            $services->http,
-            $config->timeout(),
-            $config->connectTimeout(),
+            $services,
             fn (array $body): ?string => isset($body['error']['code']) ? (string) $body['error']['code']
                 : (isset($body['error']['type']) ? (string) $body['error']['type'] : null),
         );
