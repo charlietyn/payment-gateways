@@ -300,19 +300,45 @@ if ($gateway->supports(Capability::PartialCapture)) { … }
 
 </details>
 
+## 🧪 Probar tu aplicación
+
+**`Testing\FakeMercadoPago`** es la Orders API en memoria: guarda órdenes, respeta
+`X-Idempotency-Key` (misma clave → misma respuesta; otro cuerpo → 409) y responde
+con los estados y errores de Mercado Pago. Sirve con `plaza` y con `mercadopago`.
+
+```php
+$fake = new FakeMercadoPago();
+$gateway = GatewayFactory::make('plaza', [...], $fake->client());
+
+$payment = $gateway->createPayment($request);              // action_required / waiting_payment
+$fake->pay($payment->id);                                  // el comprador paga (o decline(), expire(), chargeBack())
+[$headers, $body] = $fake->signedWebhook($payment->id, $secret, 'order.processed');
+$gateway->parseWebhook($headers, $body);                   // firmado como lo firma Mercado Pago
+$fake->failNext(503);                                      // la próxima llamada falla: prueba tus reintentos
+```
+
+En **Laravel**, `Http::fake()` no intercepta Guzzle. Liga el cliente del fake antes de
+resolver la primera pasarela:
+
+```php
+$this->app->instance(PaymentGatewaysServiceProvider::HTTP, $fake->client());
+```
+
+Las pasarelas usan ese cliente, la caché de la app y el canal de `payment-gateways.log_channel`.
+
 ## 🧩 Añadir otra pasarela
 
 Implementa `Contracts\Gateway` (y `Contracts\HostedCheckout` si el proveedor tiene
-página propia), recibe un `Config\GatewayConfig` y regístrala:
+página propia), regístrala y hazla pasar el **kit de conformidad**, la misma suite
+que pasan los tres drivers:
 
 ```php
-GatewayFactory::extend('adyen', fn (GatewayConfig $config, ?ClientInterface $http) => new AdyenGateway($config, $http));
+GatewayFactory::extend('adyen', fn (GatewayConfig $config, Services $services) => new AdyenGateway($config, $services));
 
-GatewayFactory::make('eu', ['driver' => 'adyen', 'environment' => 'sandbox', 'credentials' => ['api_key' => '…']]);
+final class AdyenConformanceTest extends GatewayConformanceTestCase { /* gateway(), currency(), buyerPays() */ }
 ```
 
-`GatewayConfig` ofrece `credential()` (obligatoria y con mensaje claro), `option()`,
-`webhook()`, `isEmulator()` y `resolveBaseUrl($hosts, $perfilDelEmulador)`.
+Paso a paso: [docs/anadir-una-pasarela.md](docs/anadir-una-pasarela.md).
 
 ## ⚠️ Límites conocidos
 
@@ -323,17 +349,19 @@ GatewayFactory::make('eu', ['driver' => 'adyen', 'environment' => 'sandbox', 'cr
 - **Checkout Pro**: `getCheckout()` busca el pago por `external_reference`, así que la referencia debe ser única por checkout.
 - **Stripe**: `getPayment()` lee las devoluciones y las disputas del cargo (`expand[]=latest_charge`). Vector no expande el cargo: en el emulador el pago sigue en `captured` tras devolver; usa el `Refund` que devuelve `refund()`.
 - **PayPal**: el certificado de firma solo se descarga de los hosts de `webhooks.cert_hosts`.
+- **Mercado Pago Orders**: una devolución parcial nombra la transacción; la biblioteca la lee de la orden (una consulta más), no hace falta pasarla. Si la orden tiene varios pagos, devuelve sobre el primero.
+- **Emulador**: cancelar un pago ya capturado en Plaza o Vector responde 500 (un proveedor real responde 400). El kit de conformidad lo marca como incompleto en el emulador.
 
 ## 🧪 Tests
 
 ```bash
-composer test        # unitarios, Guzzle simulado
+composer test        # unitarios y el kit de conformidad contra FakeMercadoPago
 composer analyse     # PHPStan nivel 8
 
 # Cada petición contra el OpenAPI oficial de su proveedor (los specs que guarda el lab)
 PAYMENT_CONTRACTS_DIR=../payment-emulator-lab/contracts composer test:contract
 
-# Contra un Payment Emulator Lab (crea sus propias aplicaciones)
+# Contra un Payment Emulator Lab (crea sus propias aplicaciones): flujos + kit de conformidad de los tres drivers
 PAYMENT_EMULATOR_URL=http://localhost:8080 \
 PAYMENT_EMULATOR_ADMIN_TOKEN=… \
 PAYMENT_EMULATOR_SINK_PORT=8095 composer test:integration

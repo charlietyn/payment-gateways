@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ronu\PaymentGateways\Laravel;
 
+use GuzzleHttp\ClientInterface;
 use Illuminate\Support\ServiceProvider;
 use Psr\Log\LoggerInterface;
 use Psr\SimpleCache\CacheInterface;
@@ -16,16 +17,26 @@ use Ronu\PaymentGateways\Webhooks\InMemoryDeduplicator;
 /**
  * Optional Laravel bridge. The core never depends on Laravel; this only binds
  * the manager and the default gateway, and publishes the config.
+ *
+ * The gateways use the app cache and logger, and a Guzzle client bound as
+ * `payment-gateways.http` when there is one (a FakeMercadoPago in tests):
+ *
+ *     $this->app->instance(PaymentGatewaysServiceProvider::HTTP, $fake->client());
+ *
+ * Bind it before the first gateway is resolved, or forget the manager
+ * (`$this->app->forgetInstance(PaymentGatewaysManager::class)`).
  */
 final class PaymentGatewaysServiceProvider extends ServiceProvider
 {
+    public const HTTP = 'payment-gateways.http';
+
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__ . '/../../config/payment-gateways.php', 'payment-gateways');
 
         $this->app->singleton(PaymentGatewaysManager::class, fn ($app) => new PaymentGatewaysManager(
             (array) $app['config']->get('payment-gateways', []),
-            new Services(cache: $this->cache(), logger: $this->logger($app['config']->get('payment-gateways.log_channel'))),
+            new Services(http: $this->http(), cache: $this->cache(), logger: $this->logger($app['config']->get('payment-gateways.log_channel'))),
         ));
         $this->app->bind(Gateway::class, fn ($app) => $app->make(PaymentGatewaysManager::class)->gateway());
         $this->app->singleton(EventDeduplicator::class, function (): EventDeduplicator {
@@ -33,6 +44,13 @@ final class PaymentGatewaysServiceProvider extends ServiceProvider
 
             return $cache !== null ? new CacheDeduplicator($cache) : new InMemoryDeduplicator();
         });
+    }
+
+    private function http(): ?ClientInterface
+    {
+        $client = $this->app->bound(self::HTTP) ? $this->app->make(self::HTTP) : null;
+
+        return $client instanceof ClientInterface ? $client : null;
     }
 
     /** The default cache store (a PSR-16 repository), when the app has one. */

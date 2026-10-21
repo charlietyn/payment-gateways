@@ -44,7 +44,7 @@ final class EmulatorFlowsTest extends EmulatorTestCase
         $this->assertSame(PaymentStatus::RequiresAction, $payment->status);
         $this->assertStringEndsWith("/plaza/checkout/{$payment->id}", (string) $payment->nextAction?->url);
 
-        self::buyerPays('plaza', $payment->id, 'visa');
+        self::buyerConfirms('plaza', $payment->id, 'visa');
         $paid = $gateway->getPayment($payment->id);
         $this->assertSame(PaymentStatus::Captured, $paid?->status);
         $this->assertTrue($paid->matches($reference, Money::of(150_050, 'ARS')));
@@ -75,7 +75,7 @@ final class EmulatorFlowsTest extends EmulatorTestCase
         $this->assertStringContainsString("/vector/c/pay/{$payment->id}", (string) $payment->nextAction?->url);
         $this->assertNotNull($payment->clientSecret);
 
-        self::buyerPays('vector', $payment->id, 'card');
+        self::buyerConfirms('vector', $payment->id, 'card');
         $paid = $gateway->getPayment($payment->id);
         $this->assertSame(PaymentStatus::Captured, $paid?->status);
         $this->assertTrue($paid->matches($reference, Money::of(4200, 'USD')));
@@ -105,7 +105,7 @@ final class EmulatorFlowsTest extends EmulatorTestCase
         $this->assertStringContainsString("/harbor/checkoutnow?token={$payment->id}", (string) $payment->nextAction?->url);
         $this->assertTrue($payment->nextAction->returnsToMerchant);
 
-        self::buyerPays('harbor', $payment->id, 'harbor');
+        self::buyerConfirms('harbor', $payment->id, 'harbor');
         $this->assertSame(PaymentStatus::Approved, $gateway->getPayment($payment->id)?->status, 'Approval moves no money.');
 
         $captured = $gateway->capture($payment->id, null, "capture-{$reference}");
@@ -155,7 +155,7 @@ final class EmulatorFlowsTest extends EmulatorTestCase
             $this->assertSame(\Ronu\PaymentGateways\CheckoutStatus::Open, $checkout->status, $profile);
             $this->assertNotNull($checkout->url, $profile);
 
-            self::buyerPays($profile, $checkout->id, $method);
+            self::buyerConfirms($profile, $checkout->id, $method);
 
             $after = $gateway->getCheckout($checkout->id);
             $this->assertSame(\Ronu\PaymentGateways\CheckoutStatus::Completed, $after?->status, $profile);
@@ -176,7 +176,7 @@ final class EmulatorFlowsTest extends EmulatorTestCase
 
         $reference = 'PG-RJ-' . bin2hex(random_bytes(4));
         $payment = $gateway->createPayment(new CreatePayment(Money::of(10_000, 'ARS'), $reference, "create-{$reference}"));
-        self::buyerPays('plaza', $payment->id, 'visa', decline: true);
+        self::buyerConfirms('plaza', $payment->id, 'visa', decline: true);
 
         $failed = $gateway->getPayment($payment->id);
         $this->assertSame(PaymentStatus::Failed, $failed?->status);
