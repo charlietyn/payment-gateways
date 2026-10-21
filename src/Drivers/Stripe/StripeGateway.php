@@ -160,7 +160,8 @@ final class StripeGateway implements Gateway, HostedCheckout
             return null;
         }
 
-        $intent = $this->http->request('GET', '/v1/payment_intents/' . $paymentId, $this->headers(), allowNotFound: true);
+        // The charge holds refunds and disputes; Vector ignores `expand` and keeps the id.
+        $intent = $this->http->request('GET', '/v1/payment_intents/' . $paymentId . '?expand%5B%5D=latest_charge', $this->headers(), allowNotFound: true);
 
         return $intent === null ? null : $this->toPayment($intent);
     }
@@ -188,8 +189,7 @@ final class StripeGateway implements Gateway, HostedCheckout
             throw new GatewayException('Stripe returned a refund without id.');
         }
 
-        // A PaymentIntent does not reflect refunds (they live on the charge): the
-        // payment is read back as it is, still `captured`.
+        // Read back with the charge expanded, so the payment says refunded / partially_refunded.
         return new Refund(
             id: (string) $refund['id'],
             amount: Money::of((int) ($refund['amount'] ?? 0), (string) ($refund['currency'] ?? 'usd')),
@@ -255,9 +255,21 @@ final class StripeGateway implements Gateway, HostedCheckout
         return $event->paymentId;
     }
 
-    /** @param  array<string, mixed>  $intent */
+    /** @param  array<string, mixed>  $intent  With `latest_charge` expanded, refunds and disputes count. */
     public static function mapStatus(array $intent): PaymentStatus
     {
+        $charge = is_array($intent['latest_charge'] ?? null) ? $intent['latest_charge'] : null;
+        if (($intent['status'] ?? null) === 'succeeded' && $charge !== null) {
+            $refunded = (int) ($charge['amount_refunded'] ?? 0);
+
+            return match (true) {
+                ! empty($charge['disputed']) => PaymentStatus::Disputed,
+                ! empty($charge['refunded']) || ($refunded > 0 && $refunded >= (int) ($charge['amount_captured'] ?? $intent['amount'] ?? 0)) => PaymentStatus::Refunded,
+                $refunded > 0 => PaymentStatus::PartiallyRefunded,
+                default => PaymentStatus::Captured,
+            };
+        }
+
         return match ($intent['status'] ?? null) {
             'requires_payment_method' => ! empty($intent['last_payment_error']) ? PaymentStatus::Failed : PaymentStatus::Created,
             'requires_confirmation' => PaymentStatus::Created,
@@ -284,6 +296,9 @@ final class StripeGateway implements Gateway, HostedCheckout
         }
 
         $currency = (string) ($intent['currency'] ?? 'usd');
+        $charge = $intent['latest_charge'] ?? null;
+        $chargeId = is_array($charge) ? ($charge['id'] ?? null) : $charge;
+        $refunded = is_array($charge) ? (int) ($charge['amount_refunded'] ?? 0) : 0;
         $redirect = $intent['next_action']['redirect_to_url']['url'] ?? null;
         $returnUrl = $intent['next_action']['redirect_to_url']['return_url'] ?? null;
 
@@ -295,8 +310,9 @@ final class StripeGateway implements Gateway, HostedCheckout
             reference: isset($intent['metadata']['order_id']) ? (string) $intent['metadata']['order_id'] : null,
             providerStatus: isset($intent['status']) ? (string) $intent['status'] : null,
             providerStatusDetail: isset($intent['last_payment_error']['code']) ? (string) $intent['last_payment_error']['code'] : null,
-            transactionId: isset($intent['latest_charge']) && is_string($intent['latest_charge']) ? $intent['latest_charge'] : null,
+            transactionId: is_string($chargeId) ? $chargeId : null,
             capturedAmount: Money::of((int) ($intent['amount_received'] ?? 0), $currency),
+            refundedAmount: $refunded > 0 ? Money::of($refunded, $currency) : null,
             // Real Stripe sends the buyer back to return_url after the redirect; the
             // emulator's page does not.
             nextAction: is_string($redirect) && $redirect !== ''

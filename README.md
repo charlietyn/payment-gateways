@@ -264,7 +264,7 @@ GatewayFactory::make('eu', ['driver' => 'adyen', 'environment' => 'sandbox', 'cr
   Contra las APIs reales esos dos caminos solo están probados con respuestas simuladas
   según la documentación; **aún no contra el sandbox** ([M10](docs/PLAN-2.md)).
 - **Checkout Pro**: `getCheckout()` busca el pago por `external_reference`, así que la referencia debe ser única por checkout.
-- **Stripe**: un PaymentIntent no refleja las devoluciones, así que `getPayment()` sigue en `captured`. Usa el `Refund` que devuelve `refund()`.
+- **Stripe**: `getPayment()` lee las devoluciones y las disputas del cargo (`expand[]=latest_charge`). Vector no expande el cargo: en el emulador el pago sigue en `captured` tras devolver; usa el `Refund` que devuelve `refund()`.
 - **PayPal**: el certificado de firma solo se descarga de los hosts de `webhooks.cert_hosts`.
 
 ## 🧪 Tests

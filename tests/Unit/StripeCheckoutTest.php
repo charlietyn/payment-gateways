@@ -97,6 +97,28 @@ final class StripeCheckoutTest extends TestCase
         $this->assertSame(PaymentStatus::Captured, $payment->status);
     }
 
+    public function test_refunds_and_disputes_are_read_from_the_expanded_charge(): void
+    {
+        $intent = fn (array $charge) => ['id' => 'pi_123', 'status' => 'succeeded', 'amount' => 5000, 'amount_received' => 5000, 'currency' => 'usd',
+            'latest_charge' => $charge + ['id' => 'ch_1', 'object' => 'charge', 'amount_captured' => 5000, 'amount_refunded' => 0, 'refunded' => false, 'disputed' => false]];
+        $http = new MockHttp([
+            MockHttp::json(200, $intent(['amount_refunded' => 1000])),
+            MockHttp::json(200, $intent(['amount_refunded' => 5000, 'refunded' => true])),
+            MockHttp::json(200, $intent(['disputed' => true])),
+            MockHttp::json(200, $intent([])),
+        ]);
+        $gateway = $this->real($http);
+
+        $partial = $gateway->getPayment('pi_123');
+        $this->assertSame('https://api.stripe.com/v1/payment_intents/pi_123?expand%5B%5D=latest_charge', (string) $http->request(0)->getUri());
+        $this->assertSame([PaymentStatus::PartiallyRefunded, 1000, 'ch_1'], [$partial?->status, $partial->refundedAmount?->minor, $partial->transactionId]);
+        $this->assertSame(PaymentStatus::Refunded, $gateway->getPayment('pi_123')?->status);
+        $this->assertSame(PaymentStatus::Disputed, $gateway->getPayment('pi_123')?->status);
+        $this->assertSame(PaymentStatus::Captured, $gateway->getPayment('pi_123')?->status);
+        // Vector keeps the charge id: nothing to read, still captured.
+        $this->assertSame(PaymentStatus::Captured, StripeGateway::mapStatus(['status' => 'succeeded', 'latest_charge' => 'ch_1']));
+    }
+
     public function test_on_vector_the_checkout_is_the_intent_and_its_emulator_page(): void
     {
         $http = new MockHttp([MockHttp::json(200, ['id' => 'pi_123', 'status' => 'requires_action', 'amount' => 4200, 'currency' => 'usd',
