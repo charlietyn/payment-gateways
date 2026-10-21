@@ -4,11 +4,17 @@ declare(strict_types=1);
 
 namespace Ronu\PaymentGateways\Drivers\Stripe;
 
+use DateTimeImmutable;
 use GuzzleHttp\ClientInterface;
+use InvalidArgumentException;
+use Ronu\PaymentGateways\Capability;
 use Ronu\PaymentGateways\CaptureMode;
+use Ronu\PaymentGateways\Checkout;
+use Ronu\PaymentGateways\CheckoutStatus;
+use Ronu\PaymentGateways\Config\GatewayConfig;
 use Ronu\PaymentGateways\Contracts\Gateway;
+use Ronu\PaymentGateways\Contracts\HostedCheckout;
 use Ronu\PaymentGateways\CreatePayment;
-use Ronu\PaymentGateways\Exceptions\ConfigurationException;
 use Ronu\PaymentGateways\Exceptions\GatewayException;
 use Ronu\PaymentGateways\Exceptions\InvalidWebhookSignature;
 use Ronu\PaymentGateways\Http\Transport;
@@ -21,37 +27,39 @@ use Ronu\PaymentGateways\Support\Headers;
 use Ronu\PaymentGateways\WebhookEvent;
 
 /**
- * Stripe PaymentIntents + Refunds. Preset `vector` points it at the Payment
- * Emulator Lab; preset `stripe` at api.stripe.com.
+ * Stripe PaymentIntents + Refunds + Checkout Sessions. Requests are form-encoded,
+ * as the real API requires.
  *
- * Requests are form-encoded, as the real API requires.
+ *  - createPayment(): a PaymentIntent. With PaymentMethod::card('pm_…') it is confirmed
+ *    server-side; without one your page confirms it with Stripe.js and Payment::$clientSecret.
+ *  - createCheckout(): a Checkout Session (`mode=payment`); the buyer pays on Stripe and
+ *    returns to returnUrl. The PaymentIntent is in getCheckout()->paymentId afterwards.
+ *
+ * On the emulator (Vector) there are no Checkout Sessions and no Elements: every intent is
+ * confirmed on create and Vector's hosted page is the buyer step (next_action.redirect_to_url).
  *
  * Config:
- *  - base_url, secret_key (sk_test_… / sk_live_…), webhook_secret (whsec_…)
- *  - confirm_on_create: true for the emulator (its hosted page is the buyer step,
- *    reached through next_action.redirect_to_url). False against real Stripe, where
- *    the buyer confirms with Stripe.js using Payment::$clientSecret.
- *  - scenario: emulator only — sent as X-Emulator-Scenario
- *  - webhook_tolerance_seconds (300, Stripe's default)
+ *  - credentials.secret_key (sk_test_… / sk_live_…)
+ *  - webhooks.secret (whsec_…), webhooks.tolerance_seconds (300, Stripe's default)
+ *  - options.api_version: pin it (Stripe-Version) so an account upgrade cannot change the wire
  */
-final class StripePaymentIntentsGateway implements Gateway
+final class StripeGateway implements Gateway, HostedCheckout
 {
+    public const HOSTS = ['sandbox' => 'https://api.stripe.com', 'live' => 'https://api.stripe.com'];
+
+    public const EMULATOR_PROFILE = 'vector';
+
     private Transport $http;
 
-    /** @param  array<string, mixed>  $config */
-    public function __construct(private readonly array $config, ?ClientInterface $client = null)
+    public function __construct(private readonly GatewayConfig $config, ?ClientInterface $client = null)
     {
-        foreach (['base_url', 'secret_key'] as $key) {
-            if (empty($config[$key])) {
-                throw new ConfigurationException("stripe: '{$key}' is required.");
-            }
-        }
+        $config->credential('secret_key');
 
         $this->http = new Transport(
-            (string) $config['base_url'],
+            $config->resolveBaseUrl(self::HOSTS, self::EMULATOR_PROFILE),
             $client,
-            (float) ($config['timeout'] ?? 15),
-            (float) ($config['connect_timeout'] ?? 5),
+            $config->timeout(),
+            $config->connectTimeout(),
             fn (array $body): ?string => isset($body['error']['code']) ? (string) $body['error']['code']
                 : (isset($body['error']['type']) ? (string) $body['error']['type'] : null),
         );
@@ -62,26 +70,88 @@ final class StripePaymentIntentsGateway implements Gateway
         return 'stripe';
     }
 
+    public function supports(Capability $capability): bool
+    {
+        return $capability !== Capability::OfflinePayments;
+    }
+
     public function createPayment(CreatePayment $request): Payment
     {
-        $confirm = (bool) ($this->config['confirm_on_create'] ?? false);
+        $token = $request->paymentMethod?->token;
+        // Real Stripe only confirms server-side with a payment method; the emulator's
+        // hosted page plays the buyer, so there every intent is confirmed.
+        $confirm = $token !== null || $this->config->isEmulator();
+
         $form = array_filter([
             'amount' => $request->amount->minor,
             'currency' => strtolower($request->amount->currency),
             'capture_method' => $request->captureMode === CaptureMode::Manual ? 'manual' : 'automatic',
             'confirm' => $confirm ? 'true' : 'false',
+            'payment_method' => $token,
             'description' => $request->description,
             'receipt_email' => $request->payer?->email,
             'return_url' => $confirm ? $request->returnUrl : null,
-            'metadata' => ['order_id' => $request->reference] + $request->metadata,
+            'metadata' => $this->metadata($request),
         ], fn ($value) => $value !== null && $value !== '');
 
-        $headers = $this->headers($request->idempotencyKey);
-        if (! empty($this->config['scenario'])) {
-            $headers['X-Emulator-Scenario'] = (string) $this->config['scenario'];
-        }
+        $headers = $this->headers($request->idempotencyKey) + $this->config->emulatorHeaders();
 
         return $this->toPayment($this->http->request('POST', '/v1/payment_intents', $headers, form: $form) ?? []);
+    }
+
+    /**
+     * A Checkout Session for one line: the amount, named by the description. Add
+     * `{CHECKOUT_SESSION_ID}` to returnUrl to get the session id back on your page.
+     */
+    public function createCheckout(CreatePayment $request): Checkout
+    {
+        if ($this->config->isEmulator()) {
+            return Checkout::forPayment($this->createPayment($request));
+        }
+        if ($request->returnUrl === null) {
+            throw new InvalidArgumentException('Stripe Checkout needs returnUrl (success_url).');
+        }
+
+        $form = array_filter([
+            'mode' => 'payment',
+            'line_items' => [[
+                'quantity' => 1,
+                'price_data' => [
+                    'currency' => strtolower($request->amount->currency),
+                    'unit_amount' => $request->amount->minor,
+                    'product_data' => ['name' => $request->description ?? $request->reference],
+                ],
+            ]],
+            'success_url' => $request->returnUrl,
+            'cancel_url' => $request->cancelUrl,
+            'client_reference_id' => $request->reference,
+            'customer_email' => $request->payer?->email,
+            'metadata' => $this->metadata($request),
+            'payment_intent_data' => array_filter([
+                'capture_method' => $request->captureMode === CaptureMode::Manual ? 'manual' : null,
+                'description' => $request->description,
+                'metadata' => $this->metadata($request),
+            ]),
+            'expires_at' => $request->expiresAt?->getTimestamp(),
+        ], fn ($value) => $value !== null && $value !== '' && $value !== []);
+
+        return $this->toCheckout($this->http->request('POST', '/v1/checkout/sessions', $this->headers($request->idempotencyKey), form: $form) ?? []);
+    }
+
+    public function getCheckout(string $checkoutId): ?Checkout
+    {
+        if ($this->config->isEmulator()) {
+            $payment = $this->getPayment($checkoutId);
+
+            return $payment === null ? null : Checkout::forPayment($payment);
+        }
+        if (! preg_match('/^cs_[A-Za-z0-9_]{1,250}$/', $checkoutId)) {
+            return null;
+        }
+
+        $session = $this->http->request('GET', '/v1/checkout/sessions/' . $checkoutId, $this->headers(), allowNotFound: true);
+
+        return $session === null ? null : $this->toCheckout($session);
     }
 
     public function getPayment(string $paymentId): ?Payment
@@ -133,7 +203,7 @@ final class StripePaymentIntentsGateway implements Gateway
     /** `stripe-signature: t=<ts>,v1=<hmac>` over `<ts>.<raw body>`. Any v1 may match (secret rotation). */
     public function parseWebhook(array $headers, string $rawBody): WebhookEvent
     {
-        $secret = (string) ($this->config['webhook_secret'] ?? '');
+        $secret = (string) $this->config->webhook('secret', '');
         if ($secret === '') {
             throw new InvalidWebhookSignature(InvalidWebhookSignature::NOT_CONFIGURED);
         }
@@ -146,7 +216,7 @@ final class StripePaymentIntentsGateway implements Gateway
             throw new InvalidWebhookSignature(InvalidWebhookSignature::MALFORMED);
         }
 
-        if (abs(time() - $ts) > (int) ($this->config['webhook_tolerance_seconds'] ?? 300)) {
+        if (abs(time() - $ts) > (int) $this->config->webhook('tolerance_seconds', 300)) {
             throw new InvalidWebhookSignature(InvalidWebhookSignature::OUTSIDE_TOLERANCE);
         }
 
@@ -165,7 +235,7 @@ final class StripePaymentIntentsGateway implements Gateway
         $kind = (string) ($object['object'] ?? 'unknown');
         $paymentId = match ($kind) {
             'payment_intent' => isset($object['id']) ? (string) $object['id'] : null,
-            'charge', 'refund', 'dispute' => isset($object['payment_intent']) ? (string) $object['payment_intent'] : null,
+            'charge', 'refund', 'dispute', 'checkout.session' => is_string($object['payment_intent'] ?? null) ? $object['payment_intent'] : null,
             default => null,
         };
 
@@ -200,6 +270,12 @@ final class StripePaymentIntentsGateway implements Gateway
         };
     }
 
+    /** @return array<string, string> */
+    private function metadata(CreatePayment $request): array
+    {
+        return ['order_id' => $request->reference] + $request->metadata;
+    }
+
     /** @param  array<string, mixed>  $intent */
     private function toPayment(array $intent): Payment
     {
@@ -222,21 +298,51 @@ final class StripePaymentIntentsGateway implements Gateway
             transactionId: isset($intent['latest_charge']) && is_string($intent['latest_charge']) ? $intent['latest_charge'] : null,
             capturedAmount: Money::of((int) ($intent['amount_received'] ?? 0), $currency),
             // Real Stripe sends the buyer back to return_url after the redirect; the
-            // emulator's page does not, which its preset declares.
+            // emulator's page does not.
             nextAction: is_string($redirect) && $redirect !== ''
-                ? NextAction::redirect($redirect, (bool) ($this->config['redirect_returns_to_merchant'] ?? true) && is_string($returnUrl) && $returnUrl !== '')
+                ? NextAction::redirect($redirect, ! $this->config->isEmulator() && is_string($returnUrl) && $returnUrl !== '')
                 : null,
             raw: $intent,
             clientSecret: isset($intent['client_secret']) ? (string) $intent['client_secret'] : null,
         );
     }
 
+    /** @param  array<string, mixed>  $session */
+    private function toCheckout(array $session): Checkout
+    {
+        if (! isset($session['id'])) {
+            throw new GatewayException('Stripe returned a checkout session without id.');
+        }
+
+        $status = match ($session['status'] ?? null) {
+            'complete' => CheckoutStatus::Completed,
+            'expired' => CheckoutStatus::Expired,
+            default => CheckoutStatus::Open,
+        };
+        $intent = $session['payment_intent'] ?? null;
+        $intent = is_array($intent) ? ($intent['id'] ?? null) : $intent;
+        unset($session['client_secret']);
+
+        return new Checkout(
+            gateway: $this->name(),
+            id: (string) $session['id'],
+            status: $status,
+            url: $status === CheckoutStatus::Open && is_string($session['url'] ?? null) ? $session['url'] : null,
+            returnsToMerchant: true,
+            paymentId: is_string($intent) ? $intent : null,
+            reference: isset($session['client_reference_id']) ? (string) $session['client_reference_id'] : null,
+            expiresAt: isset($session['expires_at']) && is_int($session['expires_at']) ? (new DateTimeImmutable())->setTimestamp($session['expires_at']) : null,
+            raw: $session,
+        );
+    }
+
     /** @return array<string, string> */
     private function headers(?string $idempotencyKey = null): array
     {
-        $headers = ['Authorization' => 'Bearer ' . $this->config['secret_key']];
-        if (! empty($this->config['api_version'])) {
-            $headers['Stripe-Version'] = (string) $this->config['api_version'];
+        $headers = ['Authorization' => 'Bearer ' . $this->config->credential('secret_key')];
+        $version = (string) $this->config->option('api_version', '');
+        if ($version !== '') {
+            $headers['Stripe-Version'] = $version;
         }
 
         return $idempotencyKey !== null ? $headers + ['Idempotency-Key' => $idempotencyKey] : $headers;

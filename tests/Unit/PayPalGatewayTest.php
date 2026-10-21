@@ -8,14 +8,14 @@ use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
 use Ronu\PaymentGateways\CaptureMode;
 use Ronu\PaymentGateways\CreatePayment;
-use Ronu\PaymentGateways\Drivers\PayPal\PayPalOrdersGateway;
+use Ronu\PaymentGateways\Drivers\PayPal\PayPalGateway;
 use Ronu\PaymentGateways\Exceptions\InvalidWebhookSignature;
 use Ronu\PaymentGateways\Exceptions\UnsupportedOperation;
 use Ronu\PaymentGateways\GatewayFactory;
 use Ronu\PaymentGateways\Money;
 use Ronu\PaymentGateways\PaymentStatus;
 
-final class PayPalOrdersGatewayTest extends TestCase
+final class PayPalGatewayTest extends TestCase
 {
     private static string $key;
 
@@ -46,10 +46,14 @@ final class PayPalOrdersGatewayTest extends TestCase
         ];
     }
 
-    private function gateway(MockHttp $http, array $config = []): PayPalOrdersGateway
+    private function gateway(MockHttp $http, array $config = []): PayPalGateway
     {
-        /** @var PayPalOrdersGateway */
-        return GatewayFactory::make('harbor', $config + ['emulator_url' => 'http://emu.test', 'client_id' => 'AZDxid', 'client_secret' => 'sec', 'webhook_id' => 'WH-LOCAL'], $http->client);
+        /** @var PayPalGateway */
+        return GatewayFactory::make('harbor', array_replace_recursive([
+            'credentials' => ['client_id' => 'AZDxid', 'client_secret' => 'sec'],
+            'webhooks' => ['id' => 'WH-LOCAL'],
+            'emulator' => ['api_url' => 'http://emu.test'],
+        ], $config), $http->client);
     }
 
     public function test_oauth_then_create_an_order_with_return_urls(): void
@@ -143,11 +147,11 @@ final class PayPalOrdersGatewayTest extends TestCase
 
     public function test_maps_order_statuses(): void
     {
-        $this->assertSame(PaymentStatus::Approved, PayPalOrdersGateway::mapStatus($this->order('APPROVED')));
-        $this->assertSame(PaymentStatus::Authorized, PayPalOrdersGateway::mapStatus($this->order('COMPLETED', ['authorizations' => [['status' => 'CREATED']]])));
-        $this->assertSame(PaymentStatus::Canceled, PayPalOrdersGateway::mapStatus($this->order('COMPLETED', ['authorizations' => [['status' => 'VOIDED']]])));
-        $this->assertSame(PaymentStatus::Refunded, PayPalOrdersGateway::mapStatus($this->order('COMPLETED', ['captures' => [['status' => 'REFUNDED']]])));
-        $this->assertSame(PaymentStatus::Failed, PayPalOrdersGateway::mapStatus($this->order('COMPLETED', ['captures' => [['status' => 'DECLINED']]])));
+        $this->assertSame(PaymentStatus::Approved, PayPalGateway::mapStatus($this->order('APPROVED')));
+        $this->assertSame(PaymentStatus::Authorized, PayPalGateway::mapStatus($this->order('COMPLETED', ['authorizations' => [['status' => 'CREATED']]])));
+        $this->assertSame(PaymentStatus::Canceled, PayPalGateway::mapStatus($this->order('COMPLETED', ['authorizations' => [['status' => 'VOIDED']]])));
+        $this->assertSame(PaymentStatus::Refunded, PayPalGateway::mapStatus($this->order('COMPLETED', ['captures' => [['status' => 'REFUNDED']]])));
+        $this->assertSame(PaymentStatus::Failed, PayPalGateway::mapStatus($this->order('COMPLETED', ['captures' => [['status' => 'DECLINED']]])));
     }
 
     /** Signed exactly like payment-emulator-lab/apps/api/src/providers/harbor/harbor.webhooks.ts */
@@ -195,7 +199,7 @@ final class PayPalOrdersGatewayTest extends TestCase
             [$this->signed(['id' => 'WH-1', 'event_type' => 'X', 'resource' => []])[0], '{"id":"WH-1","event_type":"Y","resource":[]}'],
         ] as [$headers, $body]) {
             try {
-                $this->gateway(new MockHttp(), ['webhook_certificate' => self::$certificate])->parseWebhook($headers, $body);
+                $this->gateway(new MockHttp(), ['webhooks' => ['certificate' => self::$certificate]])->parseWebhook($headers, $body);
                 $this->fail('expected a mismatch');
             } catch (InvalidWebhookSignature $e) {
                 $this->assertSame(InvalidWebhookSignature::MISMATCH, $e->reason);
@@ -209,7 +213,7 @@ final class PayPalOrdersGatewayTest extends TestCase
             $this->token(),
             MockHttp::json(200, ['id' => 'C0123456789ABCDEF', 'status' => 'COMPLETED', 'links' => [['rel' => 'up', 'href' => 'http://emu.test/harbor/v2/checkout/orders/O0123456789ABCDEF']]]),
         ]);
-        $gateway = $this->gateway($http, ['webhook_certificate' => self::$certificate]);
+        $gateway = $this->gateway($http, ['webhooks' => ['certificate' => self::$certificate]]);
         [$headers, $body] = $this->signed(['id' => 'WH-2', 'event_type' => 'PAYMENT.CAPTURE.COMPLETED', 'resource_type' => 'capture', 'resource' => ['id' => 'C0123456789ABCDEF']]);
 
         $event = $gateway->parseWebhook($headers, $body);

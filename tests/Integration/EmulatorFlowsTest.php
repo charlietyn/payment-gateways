@@ -21,10 +21,9 @@ final class EmulatorFlowsTest extends EmulatorTestCase
         $secret = 'whsec_' . bin2hex(random_bytes(16));
         $app = self::application('plaza', 'plaza/payment-pending', $secret);
         $gateway = GatewayFactory::make('plaza', [
-            'emulator_url' => self::$emulator,
-            'emulator_checkout_url' => 'http://checkout.invalid',
-            'access_token' => $app['credentials']['accessToken'],
-            'webhook_secret' => $secret,
+            'credentials' => ['access_token' => $app['credentials']['accessToken']],
+            'webhooks' => ['secret' => $secret],
+            'emulator' => ['api_url' => self::$emulator, 'checkout_url' => 'http://checkout.invalid'],
         ]);
 
         $reference = 'PG-MP-' . bin2hex(random_bytes(4));
@@ -63,9 +62,9 @@ final class EmulatorFlowsTest extends EmulatorTestCase
         $secret = 'whsec_' . bin2hex(random_bytes(16));
         $app = self::application('vector', 'vector/payment-requires-action', $secret);
         $gateway = GatewayFactory::make('vector', [
-            'emulator_url' => self::$emulator,
-            'secret_key' => $app['credentials']['accessToken'],
-            'webhook_secret' => $secret,
+            'credentials' => ['secret_key' => $app['credentials']['accessToken']],
+            'webhooks' => ['secret' => $secret],
+            'emulator' => ['api_url' => self::$emulator],
         ]);
 
         $reference = 'PG-ST-' . bin2hex(random_bytes(4));
@@ -93,10 +92,9 @@ final class EmulatorFlowsTest extends EmulatorTestCase
         $webhookId = 'WH-' . strtoupper(bin2hex(random_bytes(8)));
         $app = self::application('harbor', 'harbor/default', $webhookId);
         $gateway = GatewayFactory::make('harbor', [
-            'emulator_url' => self::$emulator,
-            'client_id' => $app['credentials']['clientId'],
-            'client_secret' => $app['credentials']['clientSecret'],
-            'webhook_id' => $webhookId,
+            'credentials' => ['client_id' => $app['credentials']['clientId'], 'client_secret' => $app['credentials']['clientSecret']],
+            'webhooks' => ['id' => $webhookId],
+            'emulator' => ['api_url' => self::$emulator],
         ]);
 
         $reference = 'PG-PP-' . bin2hex(random_bytes(4));
@@ -126,11 +124,55 @@ final class EmulatorFlowsTest extends EmulatorTestCase
         $this->assertSame('CHECKOUT.ORDER.APPROVED', $events[0]->type);
     }
 
+    /**
+     * createCheckout() → the buyer pays on the hosted page → getCheckout() names the payment.
+     * The emulator has no Checkout Pro / Checkout Sessions: Plaza and Vector use their own
+     * pages, so this proves the consumer code path, not those provider APIs.
+     */
+    public function test_hosted_checkout_on_the_three_profiles(): void
+    {
+        $plazaSecret = 'whsec_' . bin2hex(random_bytes(16));
+        $vectorSecret = 'whsec_' . bin2hex(random_bytes(16));
+        $plaza = self::application('plaza', 'plaza/payment-pending', $plazaSecret);
+        $vector = self::application('vector', 'vector/payment-requires-action', $vectorSecret);
+        $harbor = self::application('harbor', 'harbor/default', 'WH-' . strtoupper(bin2hex(random_bytes(8))));
+
+        $profiles = [
+            ['plaza', 'visa', 'ARS', ['credentials' => ['access_token' => $plaza['credentials']['accessToken']]]],
+            ['vector', 'card', 'USD', ['credentials' => ['secret_key' => $vector['credentials']['accessToken']]]],
+            ['harbor', 'harbor', 'USD', ['credentials' => ['client_id' => $harbor['credentials']['clientId'], 'client_secret' => $harbor['credentials']['clientSecret']]]],
+        ];
+
+        foreach ($profiles as [$profile, $method, $currency, $config]) {
+            $gateway = GatewayFactory::make($profile, $config + ['emulator' => ['api_url' => self::$emulator]]);
+            $this->assertInstanceOf(\Ronu\PaymentGateways\Contracts\HostedCheckout::class, $gateway);
+
+            $reference = 'PG-HC-' . bin2hex(random_bytes(4));
+            $amount = Money::fromDecimal('30.00', $currency);
+            $checkout = $gateway->createCheckout(new CreatePayment($amount, $reference, "checkout-{$reference}", 'Hosted', 'https://shop.test/ok', 'https://shop.test/cancel',
+                payer: Payer::fromFullName('Ana Pérez', 'ana@example.test', '30111222')));
+
+            $this->assertSame(\Ronu\PaymentGateways\CheckoutStatus::Open, $checkout->status, $profile);
+            $this->assertNotNull($checkout->url, $profile);
+
+            self::buyerPays($profile, $checkout->id, $method);
+
+            $after = $gateway->getCheckout($checkout->id);
+            $this->assertSame(\Ronu\PaymentGateways\CheckoutStatus::Completed, $after?->status, $profile);
+            $payment = $gateway->getPayment((string) $after->paymentId);
+            if ($payment?->status->awaitsMerchant()) {
+                $payment = $gateway->capture($payment->id, idempotencyKey: "capture-{$reference}");
+            }
+            $this->assertSame(PaymentStatus::Captured, $payment?->status, $profile);
+            $this->assertTrue($payment->matches($reference, $amount), $profile);
+        }
+    }
+
     public function test_a_declined_buyer_leaves_a_failed_payment(): void
     {
         $secret = 'whsec_' . bin2hex(random_bytes(16));
         $app = self::application('plaza', 'plaza/payment-pending', $secret);
-        $gateway = GatewayFactory::make('plaza', ['emulator_url' => self::$emulator, 'access_token' => $app['credentials']['accessToken'], 'webhook_secret' => $secret]);
+        $gateway = GatewayFactory::make('plaza', ['credentials' => ['access_token' => $app['credentials']['accessToken']], 'webhooks' => ['secret' => $secret], 'emulator' => ['api_url' => self::$emulator]]);
 
         $reference = 'PG-RJ-' . bin2hex(random_bytes(4));
         $payment = $gateway->createPayment(new CreatePayment(Money::of(10_000, 'ARS'), $reference, "create-{$reference}"));

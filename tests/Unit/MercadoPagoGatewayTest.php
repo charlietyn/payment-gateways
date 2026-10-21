@@ -7,7 +7,7 @@ namespace Ronu\PaymentGateways\Tests\Unit;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Ronu\PaymentGateways\CreatePayment;
-use Ronu\PaymentGateways\Drivers\MercadoPago\MercadoPagoOrdersGateway;
+use Ronu\PaymentGateways\Drivers\MercadoPago\MercadoPagoGateway;
 use Ronu\PaymentGateways\Exceptions\GatewayException;
 use Ronu\PaymentGateways\Exceptions\InvalidWebhookSignature;
 use Ronu\PaymentGateways\GatewayFactory;
@@ -15,7 +15,7 @@ use Ronu\PaymentGateways\Money;
 use Ronu\PaymentGateways\Payer;
 use Ronu\PaymentGateways\PaymentStatus;
 
-final class MercadoPagoOrdersGatewayTest extends TestCase
+final class MercadoPagoGatewayTest extends TestCase
 {
     private const TOKEN = 'TEST-1234567890123456-123456-0123456789abcdef0123456789abcdef-123456789';
 
@@ -28,13 +28,14 @@ final class MercadoPagoOrdersGatewayTest extends TestCase
         ], $overrides);
     }
 
-    private function gateway(MockHttp $http, array $config = []): MercadoPagoOrdersGateway
+    private function gateway(MockHttp $http, array $config = []): MercadoPagoGateway
     {
-        /** @var MercadoPagoOrdersGateway */
-        return GatewayFactory::make('plaza', $config + [
-            'emulator_url' => 'http://emu.test', 'emulator_checkout_url' => 'http://checkout.test',
-            'access_token' => self::TOKEN, 'webhook_secret' => 'whsec',
-        ], $http->client);
+        /** @var MercadoPagoGateway */
+        return GatewayFactory::make('plaza', array_replace_recursive([
+            'credentials' => ['access_token' => self::TOKEN],
+            'webhooks' => ['secret' => 'whsec'],
+            'emulator' => ['api_url' => 'http://emu.test', 'checkout_url' => 'http://checkout.test'],
+        ], $config), $http->client);
     }
 
     public function test_creates_an_order_that_waits_for_the_buyer(): void
@@ -68,7 +69,7 @@ final class MercadoPagoOrdersGatewayTest extends TestCase
     public function test_real_mercado_pago_reads_the_ticket_url_and_sends_no_emulator_header(): void
     {
         $http = new MockHttp([MockHttp::json(201, $this->order(['transactions' => ['payments' => [['payment_method' => ['ticket_url' => 'https://www.mercadopago.com.ar/payments/1/ticket']]]]]))]);
-        $gateway = GatewayFactory::make('mercadopago', ['access_token' => 'APP_USR-1', 'webhook_secret' => 'x'], $http->client);
+        $gateway = GatewayFactory::make('mercadopago', ['credentials' => ['access_token' => 'APP_USR-1'], 'webhooks' => ['secret' => 'x']], $http->client);
         $payment = $gateway->createPayment(new CreatePayment(Money::of(100, 'ARS'), 'R', 'k'));
 
         $this->assertSame('https://api.mercadopago.com/v1/orders', (string) $http->request(0)->getUri());
@@ -90,7 +91,7 @@ final class MercadoPagoOrdersGatewayTest extends TestCase
     #[DataProvider('states')]
     public function test_maps_every_plaza_state(string $status, ?string $detail, PaymentStatus $expected): void
     {
-        $this->assertSame($expected, MercadoPagoOrdersGateway::mapStatus($status, $detail));
+        $this->assertSame($expected, MercadoPagoGateway::mapStatus($status, $detail));
     }
 
     public function test_get_returns_null_for_unknown_and_invalid_ids(): void
@@ -174,7 +175,7 @@ final class MercadoPagoOrdersGatewayTest extends TestCase
             [$this->signed('ORD01ABC', 'other'), [], InvalidWebhookSignature::MISMATCH],
             [$this->signed('ORD01ABC', 'whsec', time() - 601), [], InvalidWebhookSignature::OUTSIDE_TOLERANCE],
             [[['x-request-id' => 'r'], '{"data":{"id":"x"}}'], [], InvalidWebhookSignature::MALFORMED],
-            [$this->signed('ORD01ABC'), ['webhook_secret' => ''], InvalidWebhookSignature::NOT_CONFIGURED],
+            [$this->signed('ORD01ABC'), ['webhooks' => ['secret' => '']], InvalidWebhookSignature::NOT_CONFIGURED],
         ];
 
         foreach ($cases as [[$headers, $body], $config, $reason]) {

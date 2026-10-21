@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ronu\PaymentGateways\Contracts;
 
+use Ronu\PaymentGateways\Capability;
 use Ronu\PaymentGateways\CreatePayment;
 use Ronu\PaymentGateways\Exceptions\GatewayException;
 use Ronu\PaymentGateways\Exceptions\InvalidWebhookSignature;
@@ -19,13 +20,23 @@ use Ronu\PaymentGateways\WebhookEvent;
  *  1. createPayment() → send the buyer to $payment->nextAction->url;
  *  2. a webhook arrives → parseWebhook() → getPayment(paymentIdForEvent());
  *  3. status Approved/Authorized → capture(); Captured → fulfill (after Payment::matches()).
+ *
+ * Drivers whose provider hosts a payment page also implement HostedCheckout.
  */
 interface Gateway
 {
-    /** `mercadopago`, `stripe` or `paypal`. */
+    /** The driver: `mercadopago`, `stripe`, `paypal` or a registered one. */
     public function name(): string;
 
-    /** @throws GatewayException */
+    /** Whether the driver does this. Ask before calling instead of catching UnsupportedOperation. */
+    public function supports(Capability $capability): bool;
+
+    /**
+     * A payment your page completes: with $request->paymentMethod (a Brick or Elements
+     * token, a ticket) or, without it, through Payment::$nextAction / Payment::$clientSecret.
+     *
+     * @throws GatewayException
+     */
     public function createPayment(CreatePayment $request): Payment;
 
     /**

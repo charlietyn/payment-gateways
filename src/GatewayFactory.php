@@ -5,68 +5,135 @@ declare(strict_types=1);
 namespace Ronu\PaymentGateways;
 
 use GuzzleHttp\ClientInterface;
+use Ronu\PaymentGateways\Config\GatewayConfig;
 use Ronu\PaymentGateways\Contracts\Gateway;
-use Ronu\PaymentGateways\Drivers\MercadoPago\MercadoPagoOrdersGateway;
-use Ronu\PaymentGateways\Drivers\PayPal\PayPalOrdersGateway;
-use Ronu\PaymentGateways\Drivers\Stripe\StripePaymentIntentsGateway;
+use Ronu\PaymentGateways\Drivers\MercadoPago\MercadoPagoGateway;
+use Ronu\PaymentGateways\Drivers\PayPal\PayPalGateway;
+use Ronu\PaymentGateways\Drivers\Stripe\StripeGateway;
 use Ronu\PaymentGateways\Exceptions\ConfigurationException;
 
 /**
- * Builds a gateway from a preset and your credentials.
+ * Builds a gateway from a readable config (see GatewayConfig) or a preset.
  *
- *     GatewayFactory::make('plaza', ['access_token' => 'TEST-…', 'webhook_secret' => '…']);
- *     GatewayFactory::make('stripe', ['secret_key' => 'sk_live_…', 'webhook_secret' => 'whsec_…']);
+ *     GatewayFactory::make('shop', [
+ *         'driver' => 'stripe',
+ *         'environment' => 'live',
+ *         'credentials' => ['secret_key' => 'sk_live_…'],
+ *         'webhooks' => ['secret' => 'whsec_…'],
+ *     ]);
  *
- * Emulator presets take `emulator_url` (API) and `emulator_checkout_url` (buyer pages).
- * The production code path is the same; only the preset changes.
+ *     // A preset fills driver, environment and defaults; your config wins.
+ *     GatewayFactory::make('plaza', ['credentials' => ['access_token' => 'TEST-…'], 'emulator' => ['api_url' => 'http://localhost:8080']]);
+ *
+ * A name that is not a preset needs 'driver' (or 'preset'). New providers plug in with extend().
  */
 final class GatewayFactory
 {
-    /** preset => [driver, defaults] */
+    /**
+     * name => config. The emulator presets differ from the real ones only in
+     * `environment` and the `emulator` section: the driver is the same.
+     */
     public const PRESETS = [
-        'mercadopago' => ['mercadopago', ['base_url' => 'https://api.mercadopago.com', 'currency' => 'ARS']],
-        'plaza' => ['mercadopago', ['currency' => 'ARS', 'scenario' => 'plaza/payment-pending']],
-        'stripe' => ['stripe', ['base_url' => 'https://api.stripe.com', 'confirm_on_create' => false]],
-        'vector' => ['stripe', ['confirm_on_create' => true, 'scenario' => 'vector/payment-requires-action', 'redirect_returns_to_merchant' => false]],
-        'paypal' => ['paypal', ['base_url' => 'https://api-m.paypal.com']],
-        'paypal_sandbox' => ['paypal', ['base_url' => 'https://api-m.sandbox.paypal.com']],
-        'harbor' => ['paypal', ['webhook_cert_allow_http' => true]],
+        'plaza' => ['driver' => 'mercadopago', 'environment' => 'emulator', 'options' => ['currency' => 'ARS'], 'emulator' => ['scenario' => 'plaza/payment-pending']],
+        'mercadopago_sandbox' => ['driver' => 'mercadopago', 'environment' => 'sandbox', 'options' => ['currency' => 'ARS']],
+        'mercadopago' => ['driver' => 'mercadopago', 'environment' => 'live', 'options' => ['currency' => 'ARS']],
+
+        'vector' => ['driver' => 'stripe', 'environment' => 'emulator', 'emulator' => ['scenario' => 'vector/payment-requires-action']],
+        'stripe_test' => ['driver' => 'stripe', 'environment' => 'sandbox'],
+        'stripe' => ['driver' => 'stripe', 'environment' => 'live'],
+
+        'harbor' => ['driver' => 'paypal', 'environment' => 'emulator'],
+        'paypal_sandbox' => ['driver' => 'paypal', 'environment' => 'sandbox'],
+        'paypal' => ['driver' => 'paypal', 'environment' => 'live'],
     ];
 
+    /** @var array<string, callable(GatewayConfig, ?ClientInterface): Gateway> */
+    private static array $extensions = [];
+
     /** @param  array<string, mixed>  $config */
-    public static function make(string $preset, array $config = [], ?ClientInterface $client = null): Gateway
+    public static function make(string $name, array $config = [], ?ClientInterface $client = null): Gateway
     {
-        if (! isset(self::PRESETS[$preset])) {
-            throw new ConfigurationException("Unknown payment gateway preset '{$preset}'. Known: " . implode(', ', array_keys(self::PRESETS)));
-        }
+        $settings = self::config($name, $config);
+        $driver = self::drivers()[$settings->driver]
+            ?? throw new ConfigurationException("Payment gateway '{$name}': unknown driver '{$settings->driver}'. Registered: " . implode(', ', array_keys(self::drivers())) . '.');
 
-        [$driver, $defaults] = self::PRESETS[$preset];
-        $config = array_replace($defaults, self::emulatorDefaults($preset, $config), array_filter($config, fn ($v) => $v !== null));
-
-        return match ($driver) {
-            'mercadopago' => new MercadoPagoOrdersGateway($config, $client),
-            'stripe' => new StripePaymentIntentsGateway($config, $client),
-            'paypal' => new PayPalOrdersGateway($config, $client),
-        };
+        return $driver($settings, $client);
     }
 
     /**
+     * The validated config a gateway would be built with: preset merged, nulls dropped
+     * (an unset env() keeps the preset default).
+     *
      * @param  array<string, mixed>  $config
-     * @return array<string, mixed>
      */
-    private static function emulatorDefaults(string $preset, array $config): array
+    public static function config(string $name, array $config = []): GatewayConfig
     {
-        $api = rtrim((string) ($config['emulator_url'] ?? ''), '/');
-        if (! in_array($preset, ['plaza', 'vector', 'harbor'], true) || $api === '') {
-            return [];
+        $preset = $config['preset'] ?? (isset($config['driver']) ? null : $name);
+        unset($config['preset']);
+
+        if ($preset !== null) {
+            $defaults = self::PRESETS[(string) $preset]
+                ?? throw new ConfigurationException("Payment gateway '{$name}': unknown preset '{$preset}'. Known: " . implode(', ', array_keys(self::PRESETS)) . '. Or set \'driver\'.');
+            $config = self::merge($defaults, $config);
         }
 
-        $checkout = rtrim((string) ($config['emulator_checkout_url'] ?? ''), '/');
+        return GatewayConfig::fromArray($name, self::withoutNulls($config));
+    }
 
-        return match ($preset) {
-            'plaza' => ['base_url' => "{$api}/plaza"] + ($checkout !== '' ? ['checkout_url' => $checkout] : []),
-            'vector' => ['base_url' => "{$api}/vector"],
-            'harbor' => ['base_url' => "{$api}/harbor", 'webhook_cert_hosts' => [(string) parse_url($api, PHP_URL_HOST)]],
-        };
+    /**
+     * Plug in another provider:
+     *
+     *     GatewayFactory::extend('adyen', fn (GatewayConfig $config, ?ClientInterface $http) => new AdyenGateway($config, $http));
+     *
+     * @param  callable(GatewayConfig, ?ClientInterface): Gateway  $factory
+     */
+    public static function extend(string $driver, callable $factory): void
+    {
+        self::$extensions[$driver] = $factory;
+    }
+
+    /** @return array<string, callable(GatewayConfig, ?ClientInterface): Gateway> */
+    public static function drivers(): array
+    {
+        return self::$extensions + [
+            'mercadopago' => fn (GatewayConfig $config, ?ClientInterface $client): Gateway => new MercadoPagoGateway($config, $client),
+            'stripe' => fn (GatewayConfig $config, ?ClientInterface $client): Gateway => new StripeGateway($config, $client),
+            'paypal' => fn (GatewayConfig $config, ?ClientInterface $client): Gateway => new PayPalGateway($config, $client),
+        ];
+    }
+
+    /**
+     * Maps merge key by key; lists (cert_hosts…) are replaced whole.
+     *
+     * @param  array<array-key, mixed>  $base
+     * @param  array<array-key, mixed>  $override
+     * @return array<array-key, mixed>
+     */
+    private static function merge(array $base, array $override): array
+    {
+        foreach ($override as $key => $value) {
+            $base[$key] = is_array($value) && ! array_is_list($value) && is_array($base[$key] ?? null)
+                ? self::merge($base[$key], $value)
+                : $value;
+        }
+
+        return $base;
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $config
+     * @return array<array-key, mixed>
+     */
+    private static function withoutNulls(array $config): array
+    {
+        foreach ($config as $key => $value) {
+            if ($value === null) {
+                unset($config[$key]);
+            } elseif (is_array($value)) {
+                $config[$key] = self::withoutNulls($value);
+            }
+        }
+
+        return $config;
     }
 }
