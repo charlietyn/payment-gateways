@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Ronu\PaymentGateways\Drivers\MercadoPago;
 
 use DateTimeImmutable;
-use GuzzleHttp\ClientInterface;
 use Ronu\PaymentGateways\Capability;
 use Ronu\PaymentGateways\CaptureMode;
 use Ronu\PaymentGateways\Checkout;
@@ -25,6 +24,7 @@ use Ronu\PaymentGateways\Payment;
 use Ronu\PaymentGateways\PaymentMethod;
 use Ronu\PaymentGateways\PaymentStatus;
 use Ronu\PaymentGateways\Refund;
+use Ronu\PaymentGateways\Services;
 use Ronu\PaymentGateways\Support\Headers;
 use Ronu\PaymentGateways\WebhookEvent;
 
@@ -56,13 +56,13 @@ final class MercadoPagoGateway implements Gateway, HostedCheckout
 
     private Transport $http;
 
-    public function __construct(private readonly GatewayConfig $config, ?ClientInterface $client = null)
+    public function __construct(private readonly GatewayConfig $config, Services $services = new Services())
     {
         $config->credential('access_token');
 
         $this->http = new Transport(
             $config->resolveBaseUrl(self::HOSTS, self::EMULATOR_PROFILE),
-            $client,
+            $services->http,
             $config->timeout(),
             $config->connectTimeout(),
             fn (array $body): ?string => isset($body['error']) ? (string) $body['error']

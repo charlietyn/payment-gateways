@@ -7,6 +7,7 @@ namespace Ronu\PaymentGateways\Laravel;
 use Ronu\PaymentGateways\Contracts\Gateway;
 use Ronu\PaymentGateways\Exceptions\ConfigurationException;
 use Ronu\PaymentGateways\GatewayFactory;
+use Ronu\PaymentGateways\Services;
 
 /**
  * Named gateways from config/payment-gateways.php, built once per process.
@@ -19,8 +20,11 @@ final class PaymentGatewaysManager
     /** @var array<string, Gateway> */
     private array $resolved = [];
 
-    /** @param  array<string, mixed>  $config  The payment-gateways config. */
-    public function __construct(private readonly array $config) {}
+    /**
+     * @param  array<string, mixed>  $config  The payment-gateways config.
+     * @param  Services|null  $services  The service provider passes the app cache (shared PayPal tokens).
+     */
+    public function __construct(private readonly array $config, private readonly ?Services $services = null) {}
 
     public function gateway(?string $name = null): Gateway
     {
@@ -46,6 +50,6 @@ final class PaymentGatewaysManager
             throw new ConfigurationException("payment-gateways.gateways.{$name} is not configured. Configured: " . implode(', ', $this->names()) . '.');
         }
 
-        return GatewayFactory::make($name, $settings);
+        return GatewayFactory::make($name, $settings, $this->services);
     }
 }
