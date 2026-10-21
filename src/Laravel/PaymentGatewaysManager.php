@@ -38,16 +38,14 @@ final class PaymentGatewaysManager
         return array_keys((array) ($this->config['gateways'] ?? []));
     }
 
+    /** A gateway's settings: 'driver' + 'environment', or a 'preset' (see GatewayFactory::PRESETS). */
     private function build(string $name): Gateway
     {
         $settings = $this->config['gateways'][$name] ?? null;
-        if (! is_array($settings) || empty($settings['preset'])) {
-            throw new ConfigurationException("payment-gateways.gateways.{$name} needs a 'preset'.");
+        if (! is_array($settings)) {
+            throw new ConfigurationException("payment-gateways.gateways.{$name} is not configured. Configured: " . implode(', ', $this->names()) . '.');
         }
 
-        $preset = (string) $settings['preset'];
-        unset($settings['preset']);
-
-        return GatewayFactory::make($preset, $settings);
+        return GatewayFactory::make($name, $settings);
     }
 }

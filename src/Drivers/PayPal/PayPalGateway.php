@@ -7,10 +7,14 @@ namespace Ronu\PaymentGateways\Drivers\PayPal;
 use GuzzleHttp\Client;
 use GuzzleHttp\ClientInterface;
 use GuzzleHttp\RequestOptions;
+use InvalidArgumentException;
+use Ronu\PaymentGateways\Capability;
 use Ronu\PaymentGateways\CaptureMode;
+use Ronu\PaymentGateways\Checkout;
+use Ronu\PaymentGateways\Config\GatewayConfig;
 use Ronu\PaymentGateways\Contracts\Gateway;
+use Ronu\PaymentGateways\Contracts\HostedCheckout;
 use Ronu\PaymentGateways\CreatePayment;
-use Ronu\PaymentGateways\Exceptions\ConfigurationException;
 use Ronu\PaymentGateways\Exceptions\GatewayException;
 use Ronu\PaymentGateways\Exceptions\InvalidWebhookSignature;
 use Ronu\PaymentGateways\Exceptions\UnsupportedOperation;
@@ -25,23 +29,31 @@ use Ronu\PaymentGateways\WebhookEvent;
 use Throwable;
 
 /**
- * PayPal Orders v2 + Payments v2 with OAuth client credentials. Preset `harbor`
- * points it at the Payment Emulator Lab; presets `paypal` / `paypal_sandbox` at
- * api-m.paypal.com / api-m.sandbox.paypal.com.
+ * PayPal Orders v2 + Payments v2 with OAuth client credentials.
  *
  * PayPal splits consent from collection: the buyer approves (status Approved),
  * then the merchant calls capture(). With CaptureMode::Manual, capture() first
  * authorizes the approved order, then captures the authorization.
  *
+ *  - createCheckout(): an order with return/cancel URLs; the buyer approves on PayPal and
+ *    comes back. The checkout id IS the order id.
+ *  - createPayment() without returnUrl: an order for the PayPal JS SDK buttons on your page
+ *    (they approve it with the order id). Card tokens are not taken here.
+ *
  * Config:
- *  - base_url, client_id, client_secret (or a ready access_token)
- *  - webhook_id: the id PayPal assigned to your webhook (Harbor: the app's webhookSecret)
- *  - webhook_cert_hosts: hosts a signing certificate may be downloaded from
- *  - webhook_certificate: a pinned PEM, instead of downloading one
- *  - webhook_tolerance_seconds (300)
+ *  - credentials.client_id + credentials.client_secret (or a ready credentials.access_token)
+ *  - webhooks.id: the id PayPal assigned to your webhook (Harbor: the app's webhookSecret)
+ *  - webhooks.cert_hosts: hosts a signing certificate may be downloaded from
+ *  - webhooks.certificate: a pinned PEM, instead of downloading one
+ *  - webhooks.tolerance_seconds (300)
+ *  - options.brand_name, options.locale, options.shipping_preference (NO_SHIPPING for digital goods)
  */
-final class PayPalOrdersGateway implements Gateway
+final class PayPalGateway implements Gateway, HostedCheckout
 {
+    public const HOSTS = ['sandbox' => 'https://api-m.sandbox.paypal.com', 'live' => 'https://api-m.paypal.com'];
+
+    public const EMULATOR_PROFILE = 'harbor';
+
     public const DEFAULT_CERT_HOSTS = ['api.paypal.com', 'api-m.paypal.com', 'api.sandbox.paypal.com', 'api-m.sandbox.paypal.com'];
 
     private Transport $http;
@@ -55,22 +67,19 @@ final class PayPalOrdersGateway implements Gateway
     /** @var array<string, string> */
     private array $certificates = [];
 
-    /** @param  array<string, mixed>  $config */
-    public function __construct(private readonly array $config, ?ClientInterface $client = null)
+    public function __construct(private readonly GatewayConfig $config, ?ClientInterface $client = null)
     {
-        if (empty($config['base_url'])) {
-            throw new ConfigurationException("paypal: 'base_url' is required.");
-        }
-        if (empty($config['access_token']) && (empty($config['client_id']) || empty($config['client_secret']))) {
-            throw new ConfigurationException("paypal: 'client_id' and 'client_secret' (or 'access_token') are required.");
+        if ($config->credentialOrNull('access_token') === null) {
+            $config->credential('client_id');
+            $config->credential('client_secret');
         }
 
         $this->client = $client ?? new Client();
         $this->http = new Transport(
-            (string) $config['base_url'],
+            $config->resolveBaseUrl(self::HOSTS, self::EMULATOR_PROFILE),
             $this->client,
-            (float) ($config['timeout'] ?? 15),
-            (float) ($config['connect_timeout'] ?? 5),
+            $config->timeout(),
+            $config->connectTimeout(),
             fn (array $body): ?string => isset($body['details'][0]['issue']) ? (string) $body['details'][0]['issue']
                 : (isset($body['name']) ? (string) $body['name'] : (isset($body['error']) ? (string) $body['error'] : null)),
         );
@@ -81,8 +90,17 @@ final class PayPalOrdersGateway implements Gateway
         return 'paypal';
     }
 
+    public function supports(Capability $capability): bool
+    {
+        return $capability !== Capability::OfflinePayments;
+    }
+
     public function createPayment(CreatePayment $request): Payment
     {
+        if ($request->paymentMethod !== null) {
+            throw new UnsupportedOperation('PayPal: approve the order with the JS SDK or createCheckout(); payment method tokens are not taken.');
+        }
+
         $unit = array_filter([
             'reference_id' => 'default',
             'custom_id' => $request->reference,
@@ -97,12 +115,34 @@ final class PayPalOrdersGateway implements Gateway
 
         $context = array_filter(['return_url' => $request->returnUrl, 'cancel_url' => $request->cancelUrl]);
         if ($context !== []) {
-            $body['payment_source'] = ['paypal' => ['experience_context' => $context + ['user_action' => 'PAY_NOW']]];
+            $body['payment_source'] = ['paypal' => ['experience_context' => $context + array_filter([
+                'user_action' => 'PAY_NOW',
+                'brand_name' => $this->config->option('brand_name'),
+                'locale' => $this->config->option('locale'),
+                'shipping_preference' => $this->config->option('shipping_preference'),
+            ])]];
         }
 
         $order = $this->http->request('POST', '/v2/checkout/orders', $this->headers($request->idempotencyKey), $body) ?? [];
 
         return $this->toPayment($order, $request->returnUrl !== null);
+    }
+
+    /** The order with return URLs: PayPal's approval page is the hosted checkout. */
+    public function createCheckout(CreatePayment $request): Checkout
+    {
+        if ($request->returnUrl === null) {
+            throw new InvalidArgumentException('PayPal checkout needs returnUrl: the buyer comes back there to be captured.');
+        }
+
+        return Checkout::forPayment($this->createPayment($request));
+    }
+
+    public function getCheckout(string $checkoutId): ?Checkout
+    {
+        $payment = $this->getPayment($checkoutId);
+
+        return $payment === null ? null : Checkout::forPayment($payment);
     }
 
     public function getPayment(string $paymentId): ?Payment
@@ -195,7 +235,7 @@ final class PayPalOrdersGateway implements Gateway
      */
     public function parseWebhook(array $headers, string $rawBody): WebhookEvent
     {
-        $webhookId = (string) ($this->config['webhook_id'] ?? '');
+        $webhookId = (string) $this->config->webhook('id', '');
         if ($webhookId === '') {
             throw new InvalidWebhookSignature(InvalidWebhookSignature::NOT_CONFIGURED);
         }
@@ -206,7 +246,7 @@ final class PayPalOrdersGateway implements Gateway
         $certUrl = Headers::get($headers, 'paypal-cert-url');
         $algorithm = Headers::get($headers, 'paypal-auth-algo') ?? 'SHA256withRSA';
 
-        if ($transmissionId === null || $time === null || $signature === null || ($certUrl === null && empty($this->config['webhook_certificate']))) {
+        if ($transmissionId === null || $time === null || $signature === null || ($certUrl === null && empty($this->config->webhook('certificate')))) {
             throw new InvalidWebhookSignature(InvalidWebhookSignature::MALFORMED);
         }
         if (strcasecmp($algorithm, 'SHA256withRSA') !== 0) {
@@ -214,7 +254,7 @@ final class PayPalOrdersGateway implements Gateway
         }
 
         $sent = strtotime($time);
-        if ($sent === false || abs(time() - $sent) > (int) ($this->config['webhook_tolerance_seconds'] ?? 300)) {
+        if ($sent === false || abs(time() - $sent) > (int) $this->config->webhook('tolerance_seconds', 300)) {
             throw new InvalidWebhookSignature(InvalidWebhookSignature::OUTSIDE_TOLERANCE);
         }
 
@@ -349,17 +389,23 @@ final class PayPalOrdersGateway implements Gateway
 
     private function certificate(?string $url): string
     {
-        if (! empty($this->config['webhook_certificate'])) {
-            return (string) $this->config['webhook_certificate'];
+        $pinned = (string) $this->config->webhook('certificate', '');
+        if ($pinned !== '') {
+            return $pinned;
         }
 
         $parts = parse_url((string) $url);
-        $hosts = (array) ($this->config['webhook_cert_hosts'] ?? self::DEFAULT_CERT_HOSTS);
+        $hosts = (array) $this->config->webhook('cert_hosts', self::DEFAULT_CERT_HOSTS);
+        // Harbor serves its public test certificate from the emulator host, over HTTP.
+        $allowHttp = $this->config->isEmulator();
+        if ($allowHttp) {
+            $hosts[] = (string) parse_url($this->config->emulatorApiUrl(), PHP_URL_HOST);
+        }
         $host = strtolower((string) ($parts['host'] ?? ''));
         if (! is_array($parts) || ! in_array($parts['scheme'] ?? '', ['https', 'http'], true) || ! in_array($host, array_map('strtolower', $hosts), true)) {
             throw new InvalidWebhookSignature(InvalidWebhookSignature::UNTRUSTED_CERTIFICATE, "Certificate host '{$host}' is not allowed.");
         }
-        if (($parts['scheme'] ?? '') === 'http' && empty($this->config['webhook_cert_allow_http'])) {
+        if (($parts['scheme'] ?? '') === 'http' && ! $allowHttp) {
             throw new InvalidWebhookSignature(InvalidWebhookSignature::UNTRUSTED_CERTIFICATE, 'Certificates are only fetched over HTTPS.');
         }
 
@@ -390,8 +436,9 @@ final class PayPalOrdersGateway implements Gateway
 
     private function accessToken(): string
     {
-        if (! empty($this->config['access_token'])) {
-            return (string) $this->config['access_token'];
+        $fixed = $this->config->credentialOrNull('access_token');
+        if ($fixed !== null) {
+            return $fixed;
         }
 
         if ($this->token !== null && time() < $this->tokenExpiresAt) {
@@ -399,7 +446,7 @@ final class PayPalOrdersGateway implements Gateway
         }
 
         $body = $this->http->request('POST', '/v1/oauth2/token', [
-            'Authorization' => 'Basic ' . base64_encode($this->config['client_id'] . ':' . $this->config['client_secret']),
+            'Authorization' => 'Basic ' . base64_encode($this->config->credential('client_id') . ':' . $this->config->credential('client_secret')),
         ], form: ['grant_type' => 'client_credentials']) ?? [];
 
         if (! isset($body['access_token'])) {

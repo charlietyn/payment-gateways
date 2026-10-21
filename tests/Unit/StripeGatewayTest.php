@@ -7,14 +7,14 @@ namespace Ronu\PaymentGateways\Tests\Unit;
 use PHPUnit\Framework\TestCase;
 use Ronu\PaymentGateways\CaptureMode;
 use Ronu\PaymentGateways\CreatePayment;
-use Ronu\PaymentGateways\Drivers\Stripe\StripePaymentIntentsGateway;
+use Ronu\PaymentGateways\Drivers\Stripe\StripeGateway;
 use Ronu\PaymentGateways\Exceptions\InvalidWebhookSignature;
 use Ronu\PaymentGateways\GatewayFactory;
 use Ronu\PaymentGateways\Money;
 use Ronu\PaymentGateways\Payer;
 use Ronu\PaymentGateways\PaymentStatus;
 
-final class StripePaymentIntentsGatewayTest extends TestCase
+final class StripeGatewayTest extends TestCase
 {
     private function intent(array $overrides = []): array
     {
@@ -28,7 +28,7 @@ final class StripePaymentIntentsGatewayTest extends TestCase
     public function test_creates_a_confirmed_intent_on_the_emulator_with_form_encoding(): void
     {
         $http = new MockHttp([MockHttp::json(200, $this->intent())]);
-        $gateway = GatewayFactory::make('vector', ['emulator_url' => 'http://emu.test', 'secret_key' => 'sk_test_51abc', 'webhook_secret' => 'whsec_x'], $http->client);
+        $gateway = GatewayFactory::make('vector', ['emulator' => ['api_url' => 'http://emu.test'], 'credentials' => ['secret_key' => 'sk_test_51abc'], 'webhooks' => ['secret' => 'whsec_x']], $http->client);
 
         $payment = $gateway->createPayment(new CreatePayment(
             Money::of(5000, 'USD'), 'ORDER-1', 'idem-1', 'Two tickets', 'https://shop.test/back',
@@ -55,7 +55,7 @@ final class StripePaymentIntentsGatewayTest extends TestCase
     public function test_real_stripe_leaves_confirmation_to_stripe_js(): void
     {
         $http = new MockHttp([MockHttp::json(200, $this->intent(['status' => 'requires_payment_method', 'next_action' => null]))]);
-        $gateway = GatewayFactory::make('stripe', ['secret_key' => 'sk_live_x', 'webhook_secret' => 'w', 'api_version' => '2024-06-20'], $http->client);
+        $gateway = GatewayFactory::make('stripe', ['credentials' => ['secret_key' => 'sk_live_x'], 'webhooks' => ['secret' => 'w'], 'options' => ['api_version' => '2024-06-20']], $http->client);
         $payment = $gateway->createPayment(new CreatePayment(Money::of(5000, 'USD'), 'ORDER-1', 'idem-1', returnUrl: 'https://shop.test/back'));
 
         $this->assertSame('https://api.stripe.com/v1/payment_intents', (string) $http->request(0)->getUri());
@@ -69,12 +69,12 @@ final class StripePaymentIntentsGatewayTest extends TestCase
 
     public function test_maps_statuses_including_a_declined_attempt(): void
     {
-        $this->assertSame(PaymentStatus::Failed, StripePaymentIntentsGateway::mapStatus(['status' => 'requires_payment_method', 'last_payment_error' => ['code' => 'card_declined']]));
-        $this->assertSame(PaymentStatus::Created, StripePaymentIntentsGateway::mapStatus(['status' => 'requires_payment_method']));
-        $this->assertSame(PaymentStatus::Authorized, StripePaymentIntentsGateway::mapStatus(['status' => 'requires_capture']));
-        $this->assertSame(PaymentStatus::Processing, StripePaymentIntentsGateway::mapStatus(['status' => 'processing']));
-        $this->assertSame(PaymentStatus::Captured, StripePaymentIntentsGateway::mapStatus(['status' => 'succeeded']));
-        $this->assertSame(PaymentStatus::Canceled, StripePaymentIntentsGateway::mapStatus(['status' => 'canceled']));
+        $this->assertSame(PaymentStatus::Failed, StripeGateway::mapStatus(['status' => 'requires_payment_method', 'last_payment_error' => ['code' => 'card_declined']]));
+        $this->assertSame(PaymentStatus::Created, StripeGateway::mapStatus(['status' => 'requires_payment_method']));
+        $this->assertSame(PaymentStatus::Authorized, StripeGateway::mapStatus(['status' => 'requires_capture']));
+        $this->assertSame(PaymentStatus::Processing, StripeGateway::mapStatus(['status' => 'processing']));
+        $this->assertSame(PaymentStatus::Captured, StripeGateway::mapStatus(['status' => 'succeeded']));
+        $this->assertSame(PaymentStatus::Canceled, StripeGateway::mapStatus(['status' => 'canceled']));
     }
 
     public function test_capture_and_refund(): void
@@ -84,7 +84,7 @@ final class StripePaymentIntentsGatewayTest extends TestCase
             MockHttp::json(200, ['id' => 're_1', 'object' => 'refund', 'amount' => 1000, 'currency' => 'usd', 'status' => 'succeeded', 'payment_intent' => 'pi_123']),
             MockHttp::json(200, $this->intent(['status' => 'succeeded', 'next_action' => null])),
         ]);
-        $gateway = GatewayFactory::make('vector', ['emulator_url' => 'http://emu.test', 'secret_key' => 'sk_test_51abc'], $http->client);
+        $gateway = GatewayFactory::make('vector', ['emulator' => ['api_url' => 'http://emu.test'], 'credentials' => ['secret_key' => 'sk_test_51abc']], $http->client);
 
         $captured = $gateway->capture('pi_123', Money::of(3000, 'USD'), 'cap-1');
         $this->assertSame('http://emu.test/vector/v1/payment_intents/pi_123/capture', (string) $http->request(0)->getUri());
@@ -109,7 +109,7 @@ final class StripePaymentIntentsGatewayTest extends TestCase
 
     public function test_verifies_the_signature_over_the_raw_body(): void
     {
-        $gateway = GatewayFactory::make('vector', ['emulator_url' => 'http://emu.test', 'secret_key' => 'sk_test_x', 'webhook_secret' => 'whsec_x'], (new MockHttp())->client);
+        $gateway = GatewayFactory::make('vector', ['emulator' => ['api_url' => 'http://emu.test'], 'credentials' => ['secret_key' => 'sk_test_x'], 'webhooks' => ['secret' => 'whsec_x']], (new MockHttp())->client);
 
         [$headers, $body] = $this->signed(['id' => 'evt_1', 'type' => 'payment_intent.succeeded', 'data' => ['object' => ['id' => 'pi_123', 'object' => 'payment_intent']]]);
         $event = $gateway->parseWebhook($headers, $body);
@@ -139,7 +139,7 @@ final class StripePaymentIntentsGatewayTest extends TestCase
 
     public function test_accepts_any_of_several_v1_signatures_during_secret_rotation(): void
     {
-        $gateway = GatewayFactory::make('stripe', ['secret_key' => 'sk_test_x', 'webhook_secret' => 'new'], (new MockHttp())->client);
+        $gateway = GatewayFactory::make('stripe', ['credentials' => ['secret_key' => 'sk_test_x'], 'webhooks' => ['secret' => 'new']], (new MockHttp())->client);
         $ts = time();
         $body = '{"id":"evt_1","type":"t","data":{"object":{"id":"pi_1","object":"payment_intent"}}}';
         $header = "t={$ts},v1=" . hash_hmac('sha256', "{$ts}.{$body}", 'old') . ',v1=' . hash_hmac('sha256', "{$ts}.{$body}", 'new');
