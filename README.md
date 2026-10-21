@@ -14,7 +14,7 @@ Mercado Pago · Stripe · PayPal — el mismo código, en el emulador y en produ
 ![Laravel](https://img.shields.io/badge/Laravel-11%20%7C%2012-FF2D20?logo=laravel&logoColor=white)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-[Instalar](#-instalar) · [Configurar](#%EF%B8%8F-configurar) · [Cobrar](#-tres-formas-de-cobrar) · [Webhooks](#-el-flujo-común) · [Nueva pasarela](#-añadir-otra-pasarela) · [Plan](docs/PLAN-2.md)
+[Instalar](#-instalar) · [Configurar](#%EF%B8%8F-configurar) · [Cobrar](#-tres-formas-de-cobrar) · [Webhooks](#-el-flujo-común) · [Probar](#-probar-tu-aplicación) · [Nueva pasarela](#-añadir-otra-pasarela) · [Cambios](CHANGELOG.md) · [Plan](docs/PLAN-2.md)
 
 </div>
 
@@ -41,6 +41,13 @@ Mercado Pago · Stripe · PayPal — el mismo código, en el emulador y en produ
 
 ```bash
 composer require ronu/payment-gateways
+```
+
+Mientras no esté en Packagist, desde GitHub:
+
+```json
+"repositories": [{ "type": "vcs", "url": "https://github.com/charlietyn/payment-gateways" }],
+"require": { "ronu/payment-gateways": "^0.2" }
 ```
 
 PHP ≥ 8.2 con `ext-json` y `ext-openssl`. El núcleo no depende de ningún framework; el puente de Laravel se registra solo.
