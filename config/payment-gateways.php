@@ -23,6 +23,7 @@
 | Secrets come from the environment only. An unset env() keeps the default.
 */
 
+// With or without the profile: http://localhost:8080 and http://localhost:8080/plaza are the same emulator.
 $emulator = [
     'api_url' => env('PAYMENT_EMULATOR_URL', 'http://localhost:8080'),
     'checkout_url' => env('PAYMENT_EMULATOR_CHECKOUT_URL', 'http://localhost:3001'),

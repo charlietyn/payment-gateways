@@ -112,12 +112,27 @@ final readonly class GatewayConfig
         return rtrim((string) ($this->emulator['api_url'] ?? ''), '/');
     }
 
-    /** Where the emulator serves its buyer pages, when it is not the API host. */
-    public function emulatorCheckoutUrl(): ?string
+    /**
+     * The emulator URL without a trailing `/{profile}`: `http://localhost:8090` and
+     * `http://localhost:8090/plaza` both name the same emulator.
+     */
+    public function emulatorRoot(string $profile): string
+    {
+        return self::withoutProfile($this->emulatorApiUrl(), $profile);
+    }
+
+    /** Where the emulator serves its buyer pages, when it is not the API host. Same trailing-profile rule. */
+    public function emulatorCheckoutUrl(?string $profile = null): ?string
     {
         $url = rtrim((string) ($this->emulator['checkout_url'] ?? ''), '/');
+        $url = $profile !== null ? self::withoutProfile($url, $profile) : $url;
 
         return $url !== '' ? $url : null;
+    }
+
+    private static function withoutProfile(string $url, string $profile): string
+    {
+        return str_ends_with($url, '/' . $profile) ? substr($url, 0, -strlen($profile) - 1) : $url;
     }
 
     /**
@@ -142,7 +157,7 @@ final readonly class GatewayConfig
             return rtrim($this->baseUrl, '/');
         }
         if ($this->isEmulator()) {
-            return $this->emulatorApiUrl() . '/' . $emulatorProfile;
+            return $this->emulatorRoot($emulatorProfile) . '/' . $emulatorProfile;
         }
 
         return $hosts[$this->environment->value]

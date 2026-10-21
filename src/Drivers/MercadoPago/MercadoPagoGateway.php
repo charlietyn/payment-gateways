@@ -453,7 +453,7 @@ final class MercadoPagoGateway implements Gateway, HostedCheckout
     private function orderNextAction(string $orderId, array $payment): ?NextAction
     {
         if ($this->config->isEmulator()) {
-            $checkout = $this->config->emulatorCheckoutUrl() ?? $this->config->emulatorApiUrl();
+            $checkout = $this->config->emulatorCheckoutUrl(self::EMULATOR_PROFILE) ?? $this->config->emulatorRoot(self::EMULATOR_PROFILE);
 
             return NextAction::redirect("{$checkout}/plaza/checkout/{$orderId}", false);
         }
