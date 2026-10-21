@@ -62,7 +62,7 @@ $gateway = GatewayFactory::make('tienda', [
     'options'     => ['currency' => 'ARS'],
 
     'emulator'    => ['api_url' => 'http://localhost:8080', 'checkout_url' => 'http://localhost:3001'],
-    'http'        => ['timeout' => 15, 'connect_timeout' => 5],
+    'http'        => ['timeout' => 15, 'connect_timeout' => 5, 'retries' => 2],
 ]);
 ```
 
@@ -94,6 +94,26 @@ GatewayFactory::make('cobros', ['preset' => 'stripe', 'credentials' => […]]); 
 | `mercadopago` | `plaza` | `mercadopago_sandbox` | `mercadopago` |
 | `stripe` | `vector` | `stripe_test` | `stripe` |
 | `paypal` | `harbor` | `paypal_sandbox` | `paypal` |
+
+</details>
+
+<details>
+<summary><b>Caché, logs y cliente HTTP</b></summary>
+
+Son objetos, así que van aparte de la configuración, en `Services`:
+
+```php
+use Ronu\PaymentGateways\Services;
+
+GatewayFactory::make('paypal', $config, new Services(
+    http: $guzzle,          // tu cliente (proxies, middlewares)
+    cache: $psr16,          // el token OAuth de PayPal compartido entre procesos
+    logger: $psr3,          // una línea por llamada: método, ruta, estado, duración
+));
+```
+
+Los logs nunca incluyen cabeceras, cuerpos ni la query string. En Laravel, la caché y el
+log de la aplicación se pasan solos (`log_channel` elige el canal).
 
 </details>
 
@@ -209,9 +229,14 @@ $gateway->refund($payment->id, Money::fromDecimal('500', 'ARS'), 'refund-ORDER-1
 - `authorized`: captura manual pendiente (`capture()` o `cancel()`).
 - `unknown`: un estado que la biblioteca no conoce. **No cumplas el pedido.**
 
-`GatewayException::$retryable` es `true` ante fallos de red, 408, 429 y 5xx: reintenta
-con la **misma** clave de idempotencia. `$providerCode` trae el código de error del proveedor.
-Si reutilizas una clave con otro cuerpo, la respuesta es un 409 y no conviene reintentar.
+La biblioteca **ya reintenta** los fallos de red, 408, 429 y 5xx (`http.retries`, 2 por
+defecto), con espera exponencial y respetando `Retry-After`, y reenvía la petición con la
+**misma** clave de idempotencia. Una escritura sin clave solo se reenvía si la conexión no
+llegó a abrirse.
+
+Si aun así falla, `GatewayException::$retryable` dice si puedes volver a intentarlo más
+tarde, con la misma clave. `$providerCode` trae el código de error del proveedor. Si
+reutilizas una clave con otro cuerpo, la respuesta es un 409 y no se reintenta.
 
 </details>
 

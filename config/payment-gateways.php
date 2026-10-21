@@ -15,7 +15,7 @@
 |   webhooks     how notifications are verified
 |   options      provider behaviour (currency, API version, branding…)
 |   emulator     only with environment = emulator
-|   http         timeouts in seconds
+|   http         timeouts (s), retries (2) and backoff (retry_delay_ms, max_retry_delay_ms)
 |
 | Going from the emulator to the real provider = change `environment`
 | and the credentials. The code that takes payments does not change.
@@ -32,6 +32,9 @@ return [
 
     // The gateway app(Gateway::class) returns.
     'default' => env('PAYMENT_GATEWAY', 'mercadopago'),
+
+    // One log line per provider call (method, path, status, duration). Null: the default channel.
+    'log_channel' => env('PAYMENT_GATEWAYS_LOG_CHANNEL'),
 
     'gateways' => [
 
