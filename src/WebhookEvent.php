@@ -7,6 +7,9 @@ namespace Ronu\PaymentGateways;
 /**
  * A verified provider notification. It names what changed; it is not the new
  * state. Re-read with Gateway::getPayment(Gateway::paymentIdForEvent($event)).
+ *
+ * $type is the provider's own name (`payment_intent.succeeded`); $kind the same for
+ * every provider (EventType::PaymentCaptured).
  */
 final readonly class WebhookEvent
 {
@@ -24,5 +27,6 @@ final readonly class WebhookEvent
         public string $resourceId,
         public ?string $paymentId,
         public array $payload,
+        public EventType $kind = EventType::Unknown,
     ) {}
 }

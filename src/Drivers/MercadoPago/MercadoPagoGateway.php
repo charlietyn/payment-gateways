@@ -14,6 +14,7 @@ use Ronu\PaymentGateways\Config\GatewayConfig;
 use Ronu\PaymentGateways\Contracts\Gateway;
 use Ronu\PaymentGateways\Contracts\HostedCheckout;
 use Ronu\PaymentGateways\CreatePayment;
+use Ronu\PaymentGateways\EventType;
 use Ronu\PaymentGateways\Exceptions\GatewayException;
 use Ronu\PaymentGateways\Exceptions\InvalidWebhookSignature;
 use Ronu\PaymentGateways\Exceptions\UnsupportedOperation;
@@ -320,12 +321,34 @@ final class MercadoPagoGateway implements Gateway, HostedCheckout
             // `order`: Orders API; `payment`: a Checkout Pro payment.
             paymentId: in_array($type, ['order', 'payment'], true) ? $dataId : null,
             payload: $payload,
+            kind: self::eventType($type, isset($payload['action']) ? (string) $payload['action'] : null),
         );
     }
 
     public function paymentIdForEvent(WebhookEvent $event): ?string
     {
         return $event->paymentId;
+    }
+
+    /**
+     * Notification → canonical event. Payments notifications carry no state
+     * (`payment.created` / `payment.updated`): PaymentUpdated, re-read the payment.
+     */
+    public static function eventType(string $type, ?string $action): EventType
+    {
+        return match ($type) {
+            'order' => match ($action) {
+                'order.processed' => EventType::PaymentCaptured,
+                'order.refunded' => EventType::PaymentRefunded,
+                'order.canceled', 'order.expired' => EventType::PaymentCanceled,
+                'order.failed' => EventType::PaymentFailed,
+                'order.charged_back' => EventType::DisputeOpened,
+                default => EventType::PaymentUpdated,
+            },
+            'payment' => EventType::PaymentUpdated,
+            'chargebacks' => EventType::DisputeOpened,
+            default => EventType::Unknown,
+        };
     }
 
     /** Orders API status → canonical. */

@@ -7,8 +7,11 @@ namespace Ronu\PaymentGateways\Laravel;
 use Illuminate\Support\ServiceProvider;
 use Psr\Log\LoggerInterface;
 use Psr\SimpleCache\CacheInterface;
+use Ronu\PaymentGateways\Contracts\EventDeduplicator;
 use Ronu\PaymentGateways\Contracts\Gateway;
 use Ronu\PaymentGateways\Services;
+use Ronu\PaymentGateways\Webhooks\CacheDeduplicator;
+use Ronu\PaymentGateways\Webhooks\InMemoryDeduplicator;
 
 /**
  * Optional Laravel bridge. The core never depends on Laravel; this only binds
@@ -25,6 +28,11 @@ final class PaymentGatewaysServiceProvider extends ServiceProvider
             new Services(cache: $this->cache(), logger: $this->logger($app['config']->get('payment-gateways.log_channel'))),
         ));
         $this->app->bind(Gateway::class, fn ($app) => $app->make(PaymentGatewaysManager::class)->gateway());
+        $this->app->singleton(EventDeduplicator::class, function (): EventDeduplicator {
+            $cache = $this->cache();
+
+            return $cache !== null ? new CacheDeduplicator($cache) : new InMemoryDeduplicator();
+        });
     }
 
     /** The default cache store (a PSR-16 repository), when the app has one. */
