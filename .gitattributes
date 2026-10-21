@@ -1,0 +1,9 @@
+# What `composer require` downloads: src/ (Testing/ included), config/, the license and the docs a user reads.
+/.github            export-ignore
+/tests              export-ignore
+/docs/PLAN.md       export-ignore
+/docs/PLAN-2.md     export-ignore
+/.gitattributes     export-ignore
+/.gitignore         export-ignore
+/phpunit.xml        export-ignore
+/phpstan.neon       export-ignore
