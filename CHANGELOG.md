@@ -6,6 +6,44 @@ romper la API, y aquí se dice cómo.
 
 ## [Sin publicar]
 
+### Cambiado
+
+- Pint gatea `src/Orchestration` y `tests/Orchestration` (`composer format:check`, también en CI); el CI
+  carga `pdo_pgsql`. README: comando de la suite de PostgreSQL.
+
+## [0.3.0-alpha.1] — 2026-10-29 (candidato local, sin publicar)
+
+Artefacto `ronu-payment-gateways-0.3.0-alpha.1.zip`, sha256
+`e8251abc95bb8d9903850bd86710a745f259895445d7c452d22fe8b6f0633696`. Su contenido está congelado: cualquier
+cambio en lo que se distribuye sale con otra versión.
+
+### Añadido
+
+- **Orquestación de pagos** (`Ronu\PaymentGateways\Orchestration`): incorpora el paquete
+  `ronu/payment-orchestration` `0.1.0-alpha.8` completo. Incluye coordinador de checkout con estados
+  duraderos, `PostgresStore`, `RecoveryWorker`, refunds (deshabilitados por defecto), refunds externos,
+  disputas, compensación, eventos financieros, reproceso auditado de elementos agotados, métricas,
+  alertas y el puente Laravel de registro explícito. Ver [docs/orquestacion.md](docs/orquestacion.md).
+- `Contracts\RefundLookup` y `Contracts\DisputeLookup`: consulta de solo lectura de un refund o una
+  disputa individual; Mercado Pago Orders implementa la de refunds.
+- `Dispute` y `Support\SensitiveData` (redacción de datos sensibles en errores y logs).
+
+### Cambiado
+
+- `require-dev`: `laravel/framework ^12.0` sustituye a `illuminate/config|container|support`, y se
+  añade `laravel/pint`. Las dependencias de ejecución no cambian.
+- `phpstan.neon` incluye `phpstan-baseline.neon`, que solo contiene errores de
+  `src/Orchestration` heredados de su nivel 5 anterior. El resto de la biblioteca sigue en nivel 8 sin
+  baseline.
+
+### Migración
+
+- Quien usaba `ronu/payment-orchestration`: quita ese paquete y cambia el namespace
+  `Ronu\PaymentOrchestration\` por `Ronu\PaymentGateways\Orchestration\`. Esquema, eventos y
+  protocolo de workers no cambian.
+- `conflict: ronu/payment-orchestration`: los dos paquetes no pueden instalarse juntos, porque
+  serían dos coordinadores distintos sobre las mismas tablas.
+
 ## [0.2.0] — 2026-10-21
 
 Primera versión etiquetada.
