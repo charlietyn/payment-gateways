@@ -9,6 +9,9 @@ namespace Ronu\PaymentGateways;
  */
 final readonly class Payment
 {
+    /** @var array<string, mixed> */
+    public array $raw;
+
     /**
      * @param  string  $id  The provider resource id (order / payment intent). Store it.
      * @param  string|null  $reference  Your reference as the provider echoes it. Compare it
@@ -29,10 +32,12 @@ final readonly class Payment
         public ?Money $capturedAmount = null,
         public ?Money $refundedAmount = null,
         public ?NextAction $nextAction = null,
-        public array $raw = [],
+        array $raw = [],
         /** Stripe: what Stripe.js / Elements confirms on your page. Not a secret for your server, but per payment. */
         public ?string $clientSecret = null,
-    ) {}
+    ) {
+        $this->raw = \Ronu\PaymentGateways\Support\SensitiveData::redact($raw);
+    }
 
     /** The reference and the amount are the ones you expect. Check before fulfilling. */
     public function matches(string $reference, Money $amount): bool

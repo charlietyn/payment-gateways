@@ -15,6 +15,9 @@ use DateTimeImmutable;
  */
 final readonly class Checkout
 {
+    /** @var array<string, mixed> */
+    public array $raw;
+
     /**
      * @param  string  $id  The checkout resource (preference / session / order). Store it.
      * @param  string|null  $url  Where the buyer pays. Null once the checkout is no longer open.
@@ -32,8 +35,10 @@ final readonly class Checkout
         public ?string $paymentId = null,
         public ?string $reference = null,
         public ?DateTimeImmutable $expiresAt = null,
-        public array $raw = [],
-    ) {}
+        array $raw = [],
+    ) {
+        $this->raw = \Ronu\PaymentGateways\Support\SensitiveData::redact($raw);
+    }
 
     /**
      * A checkout that IS a payment: PayPal orders, and the emulator pages, where

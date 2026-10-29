@@ -17,6 +17,17 @@ use Ronu\PaymentGateways\PaymentStatus;
 
 final class PayPalGatewayTest extends TestCase
 {
+    public function test_certificate_redirect_is_rejected_without_following_it(): void
+    {
+        $http = new MockHttp([new Response(302, ['Location' => 'https://untrusted.test/certificate'])]);
+        [$headers, $body] = $this->signed(['id' => 'WH-REDIRECT', 'event_type' => 'PAYMENT.CAPTURE.COMPLETED', 'resource' => ['id' => 'capture']]);
+        try {
+            $this->gateway($http)->parseWebhook($headers, $body);
+            $this->fail('Redirected certificate must be rejected.');
+        } catch (InvalidWebhookSignature) {
+            $this->assertCount(1, $http->history);
+        }
+    }
     private static string $key;
 
     private static string $certificate;

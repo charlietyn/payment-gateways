@@ -118,6 +118,28 @@ trait UsesEmulator
         $this->fail(sprintf('Expected %d verified %s webhook(s) for %s, got %d.', $atLeast, $provider, $paymentId, count($events)));
     }
 
+    protected function signedWebhook(Gateway $gateway, \Ronu\PaymentGateways\Payment $payment): ?array
+    {
+        $profile = match ($gateway->name()) {
+            'mercadopago' => 'plaza', 'stripe' => 'vector', 'paypal' => 'harbor',
+        };
+        self::buyerConfirms($profile, $payment->id, match ($profile) { 'plaza' => 'visa', 'vector' => 'card', 'harbor' => 'harbor' });
+        $this->deliveredEvents($gateway, $profile, $payment->id);
+        foreach (glob(self::$sinkDir.'/*.json') ?: [] as $file) {
+            $record = json_decode((string) file_get_contents($file), true);
+            if (($record['path'] ?? '') !== '/'.$profile) { continue; }
+            try {
+                $event = $gateway->parseWebhook((array) $record['headers'], (string) $record['body']);
+                if ($gateway->paymentIdForEvent($event) === $payment->id) {
+                    return [$record['headers'], $record['body']];
+                }
+            } catch (InvalidWebhookSignature) {
+                continue;
+            }
+        }
+        $this->fail('No verified webhook record for the conformance payment.');
+    }
+
     private static function merchant(): string
     {
         $user = self::json(self::$control->post('/users', ['json' => [

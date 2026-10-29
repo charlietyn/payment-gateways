@@ -6,6 +6,9 @@ namespace Ronu\PaymentGateways;
 
 final readonly class Refund
 {
+    /** @var array<string, mixed> */
+    public array $raw;
+
     /**
      * @param  Payment|null  $payment  The payment after the refund, when the provider returns it.
      * @param  array<string, mixed>  $raw
@@ -16,8 +19,10 @@ final readonly class Refund
         public string $status,
         public string $paymentId,
         public ?Payment $payment = null,
-        public array $raw = [],
-    ) {}
+        array $raw = [],
+    ) {
+        $this->raw = \Ronu\PaymentGateways\Support\SensitiveData::redact($raw);
+    }
 
     public function succeeded(): bool
     {

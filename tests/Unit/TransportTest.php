@@ -56,11 +56,17 @@ final class TransportTest extends TestCase
         }
     }
 
-    public function test_a_connection_that_never_opened_is_retried_for_any_request(): void
+    public function test_a_connect_exception_does_not_prove_a_write_was_not_sent(): void
     {
         $http = new MockHttp([new ConnectException('refused', new Request('POST', '/')), MockHttp::json(200, ['access_token' => 't'])]);
 
-        $this->assertSame(['access_token' => 't'], $this->transport($http)->request('POST', '/v1/oauth2/token'));
+        try {
+            $this->transport($http)->request('POST', '/v1/oauth2/token');
+            $this->fail('An uncertain write without a key must not be retried.');
+        } catch (GatewayException) {
+            $this->assertCount(1, $http->history);
+            $this->assertSame([], $this->slept);
+        }
     }
 
     public function test_a_lost_response_is_only_retried_when_idempotent(): void

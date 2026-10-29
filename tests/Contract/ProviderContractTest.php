@@ -108,12 +108,14 @@ final class ProviderContractTest extends TestCase
     public function test_mercado_pago_orders_requests_fit_the_orders_spec(): void
     {
         $order = ['id' => 'ORD01', 'status' => 'processed', 'status_detail' => 'accredited', 'total_amount' => '1500.50', 'currency_id' => 'ARS',
-            'external_reference' => 'ORDER-1', 'transactions' => ['payments' => [['id' => 'PAY01', 'amount' => '1500.50']], 'refunds' => [['id' => 'REF1', 'amount' => '500.00']]]];
+            'external_reference' => 'ORDER-1', 'transactions' => ['payments' => [['id' => 'PAY01', 'amount' => '1500.50']]]];
+        $partial=array_replace_recursive($order,['transactions'=>['refunds'=>[['id'=>'REF1','amount'=>'500.00','status'=>'processed']]]]);
+        $full=array_replace_recursive($order,['transactions'=>['refunds'=>[['id'=>'REF2','amount'=>'1000.50','status'=>'processed']]]]);
         $preference = ['id' => '123-abc', 'init_point' => 'https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=123-abc'];
         $http = new MockHttp([
             MockHttp::json(201, $order), MockHttp::json(201, $order), MockHttp::json(201, $order),   // ticket, card, manual
-            MockHttp::json(200, $order), MockHttp::json(201, $order),                               // partial refund
-            MockHttp::json(201, $order),                                                            // full refund
+            MockHttp::json(200, $order), MockHttp::json(201, $partial),                               // partial refund
+            MockHttp::json(200, $order), MockHttp::json(201, $full),                                 // full refund
             MockHttp::json(200, $order),                                                            // capture
             MockHttp::json(201, $preference),                                                       // Checkout Pro
         ]);
@@ -139,7 +141,8 @@ final class ProviderContractTest extends TestCase
         $intent = ['id' => 'pi_1', 'object' => 'payment_intent', 'status' => 'succeeded', 'amount' => 150050, 'currency' => 'usd', 'metadata' => ['order_id' => 'ORDER-1']];
         $http = new MockHttp([
             MockHttp::json(200, $intent), MockHttp::json(200, $intent),                             // with pm_…, without
-            MockHttp::json(200, $intent),                                                           // capture
+            MockHttp::json(200, $intent), MockHttp::json(200, $intent),                               // verify currency, capture
+            MockHttp::json(200, $intent),                                                           // verify refund currency
             MockHttp::json(200, ['id' => 're_1', 'amount' => 500, 'currency' => 'usd', 'status' => 'succeeded']), MockHttp::json(200, $intent),
             MockHttp::json(200, $intent),                                                           // cancel
             MockHttp::json(200, ['id' => 'cs_test_1', 'status' => 'open', 'url' => 'https://checkout.stripe.com/c/pay/cs_test_1']),

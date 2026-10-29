@@ -43,4 +43,22 @@ final class MoneyTest extends TestCase
         $this->assertTrue(Money::of(100, 'usd')->equals(Money::of(100, 'USD')));
         $this->assertFalse(Money::of(100, 'USD')->equals(Money::of(100, 'EUR')));
     }
+
+    public function test_integer_boundaries_preserve_value_without_float_or_saturation(): void
+    {
+        $maximum = (string) PHP_INT_MAX;
+        $this->assertSame(PHP_INT_MAX, Money::fromDecimal($maximum, 'JPY')->minor);
+        $this->assertSame(PHP_INT_MAX, Money::fromDecimal(Money::of(PHP_INT_MAX, 'USD')->toDecimal(), 'USD')->minor);
+        $this->assertSame(7, Money::fromDecimal('0000000.0700', 'USD')->minor);
+        foreach ([$maximum.'0', str_repeat('9', 100), substr($maximum, 0, -1).'8'] as $overflow) {
+            foreach (['JPY', 'USD'] as $currency) {
+                try {
+                    Money::fromDecimal($overflow, $currency);
+                    $this->fail('Overflow must be rejected before casting.');
+                } catch (InvalidArgumentException $exception) {
+                    $this->assertStringContainsString('integer range', $exception->getMessage());
+                }
+            }
+        }
+    }
 }

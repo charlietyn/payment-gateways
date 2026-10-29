@@ -460,15 +460,29 @@ final class PayPalGateway implements Gateway, HostedCheckout
         if (($parts['scheme'] ?? '') === 'http' && ! $allowHttp) {
             throw new InvalidWebhookSignature(InvalidWebhookSignature::UNTRUSTED_CERTIFICATE, 'Certificates are only fetched over HTTPS.');
         }
+        if (isset($parts['user']) || isset($parts['pass']) || isset($parts['fragment'])
+            || (! $allowHttp && isset($parts['port']) && $parts['port'] !== 443)) {
+            throw new InvalidWebhookSignature(InvalidWebhookSignature::UNTRUSTED_CERTIFICATE, 'Invalid certificate URL authority.');
+        }
 
         if (isset($this->certificates[(string) $url])) {
             return $this->certificates[(string) $url];
         }
 
         try {
-            $pem = (string) $this->client->request('GET', (string) $url, [RequestOptions::TIMEOUT => 5, RequestOptions::HTTP_ERRORS => true])->getBody();
+            $response = $this->client->request('GET', (string) $url, [
+                RequestOptions::TIMEOUT => 5,
+                RequestOptions::CONNECT_TIMEOUT => 5,
+                RequestOptions::HTTP_ERRORS => true,
+                RequestOptions::ALLOW_REDIRECTS => false,
+                RequestOptions::VERIFY => true,
+            ]);
+            if ($response->getStatusCode() !== 200) {
+                throw new \RuntimeException('Certificate endpoint must return HTTP 200 without redirect.');
+            }
+            $pem = (string) $response->getBody();
         } catch (Throwable $e) {
-            throw new InvalidWebhookSignature(InvalidWebhookSignature::UNTRUSTED_CERTIFICATE, 'Could not download the signing certificate: ' . $e->getMessage());
+            throw new InvalidWebhookSignature(InvalidWebhookSignature::UNTRUSTED_CERTIFICATE, 'Could not download the signing certificate.');
         }
 
         if (openssl_x509_read($pem) === false) {

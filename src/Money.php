@@ -53,7 +53,16 @@ final readonly class Money
         }
 
         [$units] = explode('.', $string);
-        $minor = (int) $units * (10 ** $exponent) + (int) str_pad($fraction, $exponent, '0');
+        // Compare decimal strings before any cast: PHP may saturate a string cast
+        // or promote arithmetic to float when the amount exceeds PHP_INT_MAX.
+        $digits = ltrim($units . str_pad($fraction, $exponent, '0'), '0');
+        $digits = $digits === '' ? '0' : $digits;
+        $maximum = (string) PHP_INT_MAX;
+        if (strlen($digits) > strlen($maximum)
+            || (strlen($digits) === strlen($maximum) && strcmp($digits, $maximum) > 0)) {
+            throw new InvalidArgumentException('Amount exceeds the supported integer range.');
+        }
+        $minor = (int) $digits;
 
         return new self($minor, $currency);
     }
