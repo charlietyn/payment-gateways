@@ -43,6 +43,24 @@ final readonly class GatewayConfig
         public array $emulator = [],
         public array $http = [],
     ) {
+        $allowedHttp = ['timeout', 'connect_timeout', 'retries', 'retry_delay_ms', 'max_retry_delay_ms'];
+        if (array_diff(array_keys($http), $allowedHttp) !== []) {
+            throw new ConfigurationException("Payment gateway '{$name}': unknown http option.");
+        }
+        foreach (['timeout', 'connect_timeout'] as $key) {
+            if (array_key_exists($key, $http) && (! is_numeric($http[$key])
+                || ! is_finite((float) $http[$key]) || (float) $http[$key] <= 0)) {
+                throw new ConfigurationException("Payment gateway '{$name}': http.{$key} must be finite and positive.");
+            }
+        }
+        foreach (['retries', 'retry_delay_ms', 'max_retry_delay_ms'] as $key) {
+            if (array_key_exists($key, $http) && (filter_var($http[$key], FILTER_VALIDATE_INT) === false || $http[$key] < 0)) {
+                throw new ConfigurationException("Payment gateway '{$name}': http.{$key} must be a non-negative integer.");
+            }
+        }
+        if ($this->retries() > 10 || $this->retryDelayMs() > 60_000 || $this->maxRetryDelayMs() > 60_000) {
+            throw new ConfigurationException("Payment gateway '{$name}': HTTP retry budget exceeds supported limits.");
+        }
         if ($environment === Environment::Emulator && $this->emulatorApiUrl() === '' && $baseUrl === null) {
             throw new ConfigurationException("Payment gateway '{$name}': emulator.api_url is required with environment 'emulator'.");
         }

@@ -25,8 +25,8 @@ use Ronu\PaymentGateways\Services;
  * question the same way.
  *
  * Retries resend the SAME request — same idempotency key — so the provider
- * replays instead of charging twice. A write without an idempotency key is only
- * retried when the connection failed before anything was sent.
+ * replays instead of charging twice. Writes without an idempotency key are
+ * never automatically retried: connection errors can follow transmission.
  *
  * Logs say what was called and how it went: method, path without query, status,
  * duration, attempt, provider code. Never headers, bodies or query strings.
@@ -114,6 +114,8 @@ final class Transport
             RequestOptions::HTTP_ERRORS => false,
             RequestOptions::TIMEOUT => $this->timeout,
             RequestOptions::CONNECT_TIMEOUT => $this->connectTimeout,
+            RequestOptions::ALLOW_REDIRECTS => false,
+            RequestOptions::VERIFY => true,
         ];
         if ($json !== null) {
             $options[RequestOptions::JSON] = $json;
@@ -131,9 +133,11 @@ final class Transport
             try {
                 $response = $this->client->request($method, $url, $options);
             } catch (GuzzleException $e) {
-                // Nothing was sent when the connection failed: any request may go again.
-                $error = new GatewayException('Payment provider ' . ($e instanceof ConnectException ? 'unreachable' : 'request failed') . ': ' . $e->getMessage(), true, null, null, null, $e);
-                $delay = $attempt <= $this->retries && ($idempotent || $e instanceof ConnectException) ? $this->backoff($attempt, null) : null;
+                // A ConnectException can also describe a timeout after transmission.
+                // Without idempotency, a lost response is not permission to resend a write.
+                // Guzzle exceptions retain the request (credentials/body). Do not chain them.
+                $error = new GatewayException('Payment provider request failed; remote outcome may be unknown.', true);
+                $delay = $attempt <= $this->retries && $idempotent ? $this->backoff($attempt, null) : null;
                 $this->log($error, $method, $logPath, $attempt, $started, $delay);
                 if ($delay === null) {
                     throw $error;
@@ -145,8 +149,12 @@ final class Transport
 
             $status = $response->getStatusCode();
             $raw = (string) $response->getBody();
-            $body = $raw === '' ? null : json_decode($raw, true);
+            $body = $raw === '' ? null : json_decode($raw, true, 512, JSON_BIGINT_AS_STRING);
             $body = is_array($body) ? $body : null;
+
+            if ($status >= 200 && $status < 300 && $raw !== '' && $body === null) {
+                throw new GatewayException('Payment provider returned an invalid JSON object.', false, $status);
+            }
 
             if (($status >= 200 && $status < 300) || ($status === 404 && $allowNotFound)) {
                 $this->logger->info('payment-gateways: {gateway} {method} {path} → {status}', $this->context($method, $logPath, $attempt, $started) + ['status' => $status]);

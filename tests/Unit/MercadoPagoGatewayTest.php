@@ -19,6 +19,54 @@ final class MercadoPagoGatewayTest extends TestCase
 {
     private const TOKEN = 'TEST-1234567890123456-123456-0123456789abcdef0123456789abcdef-123456789';
 
+    public function test_refund_lookup_selects_identity_not_amount_and_only_sends_get(): void
+    {
+        $order = $this->order(['transactions' => ['refunds' => [
+            ['id' => 'REF1', 'transaction_id' => 'PAY01', 'amount' => '20.00', 'status' => 'processed'],
+            ['id' => 'REF2', 'transaction_id' => 'PAY01', 'amount' => '20.00', 'status' => 'processing'],
+        ]]]);
+        $http = new MockHttp([MockHttp::json(200, $order)]);
+        $refund = $this->gateway($http)->getRefund('ORD01ABC', 'REF2');
+        self::assertSame('REF2', $refund?->id);
+        self::assertSame(2000, $refund?->amount->minor);
+        self::assertFalse($refund->succeeded());
+        self::assertSame('ORD01ABC', $refund->paymentId);
+        self::assertCount(1, $http->history);
+        self::assertSame('GET', $http->request(0)->getMethod());
+        self::assertFalse($http->request(0)->hasHeader('X-Idempotency-Key'));
+    }
+
+    public function test_refund_lookup_absence_does_not_infer_from_aggregate_status(): void
+    {
+        $http = new MockHttp([MockHttp::json(200, $this->order(['status' => 'refunded'])), MockHttp::json(404, [])]);
+        self::assertNull($this->gateway($http)->getRefund('ORD01ABC', 'REF1'));
+        self::assertNull($this->gateway($http)->getRefund('ORD01ABC', 'REF1'));
+    }
+
+    public function test_refund_lookup_rejects_ambiguous_or_unrelated_evidence(): void
+    {
+        $valid = $this->order(['transactions' => ['refunds' => [
+            ['id' => 'REF1', 'transaction_id' => 'PAY01', 'amount' => '20.00', 'status' => 'processed'],
+        ]]]);
+        foreach (['order', 'duplicate', 'transaction', 'amount', 'status', 'currency'] as $bad) {
+            $order = $valid;
+            if ($bad === 'order') $order['id'] = 'ORD_OTHER';
+            if ($bad === 'duplicate') $order['transactions']['refunds'][] = $order['transactions']['refunds'][0];
+            if ($bad === 'transaction') $order['transactions']['refunds'][0]['transaction_id'] = 'PAY_OTHER';
+            if ($bad === 'amount') unset($order['transactions']['refunds'][0]['amount']);
+            if ($bad === 'status') unset($order['transactions']['refunds'][0]['status']);
+            if ($bad === 'currency') $order['currency_id'] = 'USD';
+            $http = new MockHttp([MockHttp::json(200, $order)]);
+            try {
+                $this->gateway($http)->getRefund('ORD01ABC', 'REF1');
+                self::fail('Accepted invalid ' . $bad);
+            } catch (GatewayException) {
+                self::assertCount(1, $http->history);
+                self::assertSame('GET', $http->request(0)->getMethod());
+            }
+        }
+    }
+
     private function order(array $overrides = []): array
     {
         return array_replace_recursive([
@@ -104,13 +152,27 @@ final class MercadoPagoGatewayTest extends TestCase
         $this->assertCount(1, $http->history);
     }
 
+    public function test_paid_amount_is_explicit_evidence_and_never_inferred_from_order_status(): void
+    {
+        $http = new MockHttp([
+            MockHttp::json(200, $this->order(['status' => 'processed', 'total_paid_amount' => '180000.00'])),
+            MockHttp::json(200, $this->order(['status' => 'processed'])),
+            MockHttp::json(200, $this->order(['status' => 'action_required', 'total_paid_amount' => '0.00'])),
+        ]);
+        $gateway = $this->gateway($http);
+        $this->assertSame(18000000, $gateway->getPayment('ORD01ABC')->capturedAmount->minor);
+        $this->assertNull($gateway->getPayment('ORD01ABC')->capturedAmount);
+        $this->assertSame(0, $gateway->getPayment('ORD01ABC')->capturedAmount->minor);
+    }
+
     public function test_partial_refund_names_the_transaction_and_full_refund_sends_an_empty_body(): void
     {
         $refunded = $this->order(['status' => 'processed', 'status_detail' => 'partially_refunded', 'transactions' => ['refunds' => [['id' => 'REF1', 'amount' => '50000.00', 'status' => 'processed']]]]);
         $http = new MockHttp([
             MockHttp::json(200, $this->order(['status' => 'processed', 'status_detail' => 'accredited'])),
             MockHttp::json(201, $refunded),
-            MockHttp::json(201, $this->order(['status' => 'refunded', 'status_detail' => 'refunded'])),
+            MockHttp::json(200, $refunded),
+            MockHttp::json(201, $this->order(['status' => 'refunded', 'status_detail' => 'refunded', 'transactions' => ['refunds' => [['id'=>'REF2','amount'=>'130000.00','status'=>'processed'],['id'=>'REF1','amount'=>'50000.00','status'=>'processed']]]])),
         ]);
         $gateway = $this->gateway($http);
 
@@ -121,8 +183,20 @@ final class MercadoPagoGatewayTest extends TestCase
         $this->assertSame(PaymentStatus::PartiallyRefunded, $partial->payment?->status);
 
         $full = $gateway->refund('ORD01ABC', null, 'r-2');
-        $this->assertSame('{}', (string) $http->request(2)->getBody());
+        $this->assertSame('{}', (string) $http->request(3)->getBody());
+        $this->assertSame('REF2', $full->id);
+        $this->assertSame('130000.00', $full->amount->toDecimal());
         $this->assertSame(PaymentStatus::Refunded, $full->payment?->status);
+    }
+
+    public function test_refund_response_cannot_invent_success_id_or_amount_and_multiple_new_movements_are_ambiguous(): void
+    {
+        foreach ([[], [['id'=>'REF1','status'=>'processed']], [['id'=>'REF1','amount'=>'1.00']],
+            [['id'=>'REF1','amount'=>'1.00','status'=>'processed'],['id'=>'REF2','amount'=>'1.00','status'=>'processed']]] as $refunds) {
+            $http = new MockHttp([MockHttp::json(200,$this->order()), MockHttp::json(201,$this->order(['transactions'=>['refunds'=>$refunds]]))]);
+            try { $this->gateway($http)->refund('ORD01ABC',Money::of(100,'ARS'),'stable-key'); $this->fail('Invented refund evidence'); }
+            catch (GatewayException $error) { $this->assertFalse($error->retryable); }
+        }
     }
 
     public function test_errors_say_whether_to_retry(): void

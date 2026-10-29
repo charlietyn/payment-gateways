@@ -13,6 +13,9 @@ use Ronu\PaymentGateways\Config\Environment;
 use Ronu\PaymentGateways\Config\GatewayConfig;
 use Ronu\PaymentGateways\Contracts\Gateway;
 use Ronu\PaymentGateways\Contracts\HostedCheckout;
+use Ronu\PaymentGateways\Contracts\RefundLookup;
+use Ronu\PaymentGateways\Contracts\DisputeLookup;
+use Ronu\PaymentGateways\Dispute;
 use Ronu\PaymentGateways\CreatePayment;
 use Ronu\PaymentGateways\EventType;
 use Ronu\PaymentGateways\Exceptions\GatewayException;
@@ -49,7 +52,7 @@ use Ronu\PaymentGateways\WebhookEvent;
  *  - options.notification_url, options.statement_descriptor: Checkout Pro
  *  - emulator.checkout_url: where Plaza serves {checkout_url}/plaza/checkout/{id}
  */
-final class MercadoPagoGateway implements Gateway, HostedCheckout
+final class MercadoPagoGateway implements Gateway, HostedCheckout, RefundLookup, DisputeLookup
 {
     public const HOSTS = ['sandbox' => 'https://api.mercadopago.com', 'live' => 'https://api.mercadopago.com'];
 
@@ -190,6 +193,93 @@ final class MercadoPagoGateway implements Gateway, HostedCheckout
         return $order === null ? null : $this->orderToPayment($order);
     }
 
+    /** Orders embeds individual refunds in GET /v1/orders/{id}; numeric Payments IDs are a separate API. */
+    public function getRefund(string $paymentId, string $refundId): ?Refund
+    {
+        if (self::isPaymentsApiId($paymentId)) {
+            throw new UnsupportedOperation('Refund lookup currently supports Mercado Pago Orders only.');
+        }
+        if (!preg_match('/^[A-Za-z0-9_-]{1,128}$/D', $paymentId) || !preg_match('/^[A-Za-z0-9_-]{1,128}$/D', $refundId)) {
+            throw new \InvalidArgumentException('Invalid order or refund identity.');
+        }
+        $order = $this->http->request('GET', '/v1/orders/' . rawurlencode($paymentId), $this->readHeaders(), allowNotFound: true);
+        if ($order === null) {
+            return null;
+        }
+        if (($order['id'] ?? null) !== $paymentId) {
+            throw new GatewayException('Refund lookup returned a different order.');
+        }
+        $refunds = $order['transactions']['refunds'] ?? [];
+        if (!is_array($refunds) || !array_is_list($refunds)) {
+            throw new GatewayException('Invalid refund history.');
+        }
+        $matches = array_values(array_filter($refunds, static fn ($row): bool => is_array($row) && ($row['id'] ?? null) === $refundId));
+        if ($matches === []) {
+            return null;
+        }
+        $row = $matches[0];
+        $payments = $order['transactions']['payments'] ?? [];
+        $currency = (string) $this->config->option('currency', 'ARS');
+        if (count($matches) !== 1 || !is_array($payments) || !is_string($row['transaction_id'] ?? null) ||
+            !in_array($row['transaction_id'], array_column($payments, 'id'), true) ||
+            !is_string($row['amount'] ?? null) || !is_string($row['status'] ?? null) || $row['status'] === '' ||
+            (isset($order['currency_id']) && $order['currency_id'] !== $currency)) {
+            throw new GatewayException('Refund lookup lacks unambiguous individual evidence.');
+        }
+        $amount = Money::fromDecimal($row['amount'], $currency);
+        if ($amount->minor < 1) {
+            throw new GatewayException('Invalid individual refund amount.');
+        }
+        return new Refund(id: $refundId, amount: $amount, status: $row['status'], paymentId: $paymentId, raw: $row);
+    }
+
+    /** GET case + GET order, with explicit seller and individual transaction correlation. */
+    public function getDispute(string $paymentId, string $disputeId, string $merchantId): ?Dispute
+    {
+        if (self::isPaymentsApiId($paymentId)) {
+            throw new UnsupportedOperation('Dispute lookup supports Mercado Pago Orders only.');
+        }
+        if (!preg_match('/^[A-Za-z0-9_-]{1,128}$/D', $paymentId)
+            || !preg_match('/^[0-9]{1,128}$/D', $disputeId) || !preg_match('/^[0-9]{1,128}$/D', $merchantId)) {
+            throw new \InvalidArgumentException('Invalid order, chargeback or seller identity.');
+        }
+        $case = $this->http->request('GET', '/v1/chargebacks/'.$disputeId, $this->readHeaders() + ['X-Caller-Id' => $merchantId], allowNotFound: true);
+        if ($case === null) { return null; }
+        $payments = $case['payments'] ?? null;
+        $currency = (string) $this->config->option('currency', 'ARS');
+        if ((!is_string($case['id'] ?? null) && !is_int($case['id'] ?? null)) || (string) $case['id'] !== $disputeId
+            || !is_array($payments) || !array_is_list($payments) || count($payments) !== 1
+            || (!is_string($payments[0]) && !is_int($payments[0])) || (string) $payments[0] === ''
+            || ($case['currency'] ?? null) !== $currency || !array_key_exists('coverage_applied', $case)
+            || ($case['coverage_applied'] !== null && !is_bool($case['coverage_applied']))) {
+            throw new GatewayException('Chargeback lacks unambiguous individual evidence.');
+        }
+        $value = $case['amount'] ?? null;
+        if (is_float($value)) {
+            $decimal = number_format($value, Money::exponentOf($currency), '.', '');
+            // Never round extra decimals or accept a float outside exact minor-unit range.
+            if (!is_finite($value) || (float) $decimal !== $value || abs($value) * (10 ** Money::exponentOf($currency)) > 9007199254740991) {
+                throw new GatewayException('Chargeback amount requires exact monetary evidence.');
+            }
+            $value = $decimal;
+        }
+        if (!is_string($value) && !is_int($value)) { throw new GatewayException('Chargeback amount is missing.'); }
+        $amount = Money::fromDecimal((string) $value, $currency);
+        if ($amount->minor < 1) { throw new GatewayException('Chargeback principal must be positive.'); }
+        $order = $this->http->request('GET', '/v1/orders/'.rawurlencode($paymentId), $this->readHeaders(), allowNotFound: true);
+        if ($order === null) { return null; }
+        $transactions = $order['transactions']['payments'] ?? null;
+        if (($order['id'] ?? null) !== $paymentId || !is_array($transactions) || !array_is_list($transactions)) {
+            throw new GatewayException('Chargeback returned an unrelated order.');
+        }
+        $matches = array_values(array_filter($transactions, static fn ($row): bool => is_array($row)
+            && (is_string($row['id'] ?? null) || is_int($row['id'] ?? null)) && (string) $row['id'] === (string) $payments[0]));
+        if (count($matches) !== 1 || (isset($order['currency_id']) && $order['currency_id'] !== $currency)) {
+            throw new GatewayException('Chargeback does not identify one transaction in this order.');
+        }
+        return new Dispute($disputeId, $paymentId, $amount, match ($case['coverage_applied']) { null => 'opened', true => 'won', false => 'lost' });
+    }
+
     public function capture(string $paymentId, ?Money $amount = null, ?string $idempotencyKey = null): Payment
     {
         $key = $idempotencyKey ?? "capture-{$paymentId}";
@@ -233,11 +323,15 @@ final class MercadoPagoGateway implements Gateway, HostedCheckout
             $refund = $this->http->request('POST', "/v1/payments/{$paymentId}/refunds", $this->writeHeaders($idempotencyKey), $body) ?? [];
             $payment = $this->getPayment($paymentId);
             $currency = $payment !== null ? $payment->amount->currency : (string) $this->config->option('currency', 'ARS');
+            if (empty($refund['id']) || !isset($refund['amount'], $refund['status']) ||
+                (isset($refund['payment_id']) && (string) $refund['payment_id'] !== $paymentId)) {
+                throw new GatewayException('Refund response lacks individual evidence; reconcile before retrying.', false);
+            }
 
             return new Refund(
-                id: (string) ($refund['id'] ?? $idempotencyKey),
-                amount: isset($refund['amount']) ? self::money($refund['amount'], $currency) : ($amount ?? $payment->amount ?? Money::of(0, $currency)),
-                status: (string) ($refund['status'] ?? 'approved'),
+                id: (string) $refund['id'],
+                amount: self::money($refund['amount'], $currency),
+                status: (string) $refund['status'],
                 paymentId: $paymentId,
                 payment: $payment,
                 raw: $refund,
@@ -245,9 +339,10 @@ final class MercadoPagoGateway implements Gateway, HostedCheckout
         }
 
         $body = (object) [];
+        $current = $this->getPayment($paymentId) ?? throw new GatewayException("Unknown order {$paymentId}.", false, 404);
+        $knownRefunds = array_column((array) ($current->raw['transactions']['refunds'] ?? []), 'id');
         if ($amount !== null) {
             // A partial refund names the transaction; `{}` refunds what remains.
-            $current = $this->getPayment($paymentId) ?? throw new GatewayException("Unknown order {$paymentId}.", false, 404);
             if ($current->transactionId === null) {
                 throw new GatewayException('The order has no payment transaction to refund.');
             }
@@ -257,12 +352,20 @@ final class MercadoPagoGateway implements Gateway, HostedCheckout
         $order = $this->http->request('POST', '/v1/orders/' . rawurlencode($paymentId) . '/refund', $this->writeHeaders($idempotencyKey), $body) ?? [];
         $payment = $this->orderToPayment($order);
         $refunds = (array) ($order['transactions']['refunds'] ?? []);
-        $last = (array) (end($refunds) ?: []);
+        $newRefunds = array_values(array_filter($refunds, static fn ($row): bool =>
+            is_array($row) && isset($row['id']) && !in_array($row['id'], $knownRefunds, true)));
+        if (count($newRefunds) !== 1 || $payment->id !== $paymentId) {
+            throw new GatewayException('Refund response is ambiguous; reconcile before retrying.', false);
+        }
+        $last = $newRefunds[0];
+        if (empty($last['id']) || !isset($last['amount'], $last['status'])) {
+            throw new GatewayException('Refund response lacks individual evidence; reconcile before retrying.', false);
+        }
 
         return new Refund(
-            id: (string) ($last['id'] ?? $idempotencyKey),
-            amount: isset($last['amount']) ? Money::fromDecimal((string) $last['amount'], $payment->amount->currency) : ($amount ?? $payment->amount),
-            status: (string) ($last['status'] ?? 'processed'),
+            id: (string) $last['id'],
+            amount: Money::fromDecimal((string) $last['amount'], $payment->amount->currency),
+            status: (string) $last['status'],
             paymentId: $paymentId,
             payment: $payment,
             raw: $order,
@@ -444,6 +547,8 @@ final class MercadoPagoGateway implements Gateway, HostedCheckout
             providerStatus: isset($order['status']) ? (string) $order['status'] : null,
             providerStatusDetail: isset($order['status_detail']) ? (string) $order['status_detail'] : null,
             transactionId: isset($payment['id']) ? (string) $payment['id'] : null,
+            // Missing evidence is unknown, never the requested amount or a fabricated zero.
+            capturedAmount: isset($order['total_paid_amount']) ? Money::fromDecimal((string) $order['total_paid_amount'], $currency) : null,
             nextAction: $status === PaymentStatus::RequiresAction ? $this->orderNextAction((string) $order['id'], $payment) : null,
             raw: $order,
         );

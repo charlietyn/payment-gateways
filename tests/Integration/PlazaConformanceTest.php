@@ -6,6 +6,9 @@ namespace Ronu\PaymentGateways\Tests\Integration;
 
 use Ronu\PaymentGateways\Contracts\Gateway;
 use Ronu\PaymentGateways\GatewayFactory;
+use Ronu\PaymentGateways\Contracts\RefundLookup;
+use Ronu\PaymentGateways\CreatePayment;
+use Ronu\PaymentGateways\Money;
 use Ronu\PaymentGateways\Testing\GatewayConformanceTestCase;
 
 /** The conformance kit, Mercado Pago driver against the emulator's Plaza profile. */
@@ -35,6 +38,24 @@ final class PlazaConformanceTest extends GatewayConformanceTestCase
         return 'ARS';
     }
 
+    public function test_individual_refunds_remain_queryable_without_reissuing_them(): void
+    {
+        $gateway = $this->gateway();
+        self::assertInstanceOf(RefundLookup::class, $gateway);
+        $payment = $gateway->createPayment(new CreatePayment(new Money(10000, 'ARS'), 'lookup-' . bin2hex(random_bytes(8)), bin2hex(random_bytes(16))));
+        $this->buyerPays($gateway, $payment->id);
+        $first = $gateway->refund($payment->id, new Money(1000, 'ARS'), bin2hex(random_bytes(16)));
+        $second = $gateway->refund($payment->id, new Money(1000, 'ARS'), bin2hex(random_bytes(16)));
+        self::assertNotSame($first->id, $second->id);
+        foreach ([$second, $first, $second] as $expected) {
+            $read = $gateway->getRefund($payment->id, $expected->id);
+            self::assertSame($expected->id, $read?->id);
+            self::assertSame(1000, $read?->amount->minor);
+            self::assertTrue($read?->succeeded());
+        }
+        self::assertNull($gateway->getRefund($payment->id, 'REF_UNKNOWN'));
+    }
+
     protected function buyerPays(Gateway $gateway, string $resourceId): void
     {
         self::buyerConfirms('plaza', $resourceId, 'visa');
@@ -48,6 +69,6 @@ final class PlazaConformanceTest extends GatewayConformanceTestCase
     /** The kit is right; the emulator is not (see docs/PLAN-2.md, mejoras al emulador). */
     public function test_a_captured_payment_cannot_be_canceled(): void
     {
-        $this->markTestIncomplete('The emulator answers 500 to cancel a captured payment (assertTransition throws); a provider answers 400.');
+        parent::test_a_captured_payment_cannot_be_canceled();
     }
 }

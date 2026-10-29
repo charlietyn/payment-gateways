@@ -168,6 +168,7 @@ final class StripeGateway implements Gateway, HostedCheckout
 
     public function capture(string $paymentId, ?Money $amount = null, ?string $idempotencyKey = null): Payment
     {
+        $this->assertAmountCurrency($paymentId, $amount);
         $form = $amount !== null ? ['amount_to_capture' => $amount->minor] : [];
 
         return $this->toPayment($this->http->request('POST', '/v1/payment_intents/' . $paymentId . '/capture',
@@ -182,6 +183,7 @@ final class StripeGateway implements Gateway, HostedCheckout
 
     public function refund(string $paymentId, ?Money $amount, string $idempotencyKey): Refund
     {
+        $this->assertAmountCurrency($paymentId, $amount);
         $form = ['payment_intent' => $paymentId] + ($amount !== null ? ['amount' => $amount->minor] : []);
         $refund = $this->http->request('POST', '/v1/refunds', $this->headers($idempotencyKey), form: $form) ?? [];
 
@@ -380,5 +382,19 @@ final class StripeGateway implements Gateway, HostedCheckout
         }
 
         return $idempotencyKey !== null ? $headers + ['Idempotency-Key' => $idempotencyKey] : $headers;
+    }
+
+    private function assertAmountCurrency(string $paymentId, ?Money $amount): void
+    {
+        if ($amount === null) {
+            return;
+        }
+        if ($amount->isZero()) {
+            throw new \InvalidArgumentException('Capture/refund amount must be positive.');
+        }
+        $payment = $this->getPayment($paymentId) ?? throw new GatewayException('Payment not found.', false, 404);
+        if ($payment->amount->currency !== $amount->currency) {
+            throw new \InvalidArgumentException('Capture/refund currency must match the payment.');
+        }
     }
 }

@@ -15,15 +15,19 @@ use Throwable;
  */
 class GatewayException extends RuntimeException
 {
+    /** @var array<string, mixed>|null */
+    public readonly ?array $body;
+
     /** @param  array<string, mixed>|null  $body */
     public function __construct(
         string $message,
         public readonly bool $retryable = false,
         public readonly ?int $httpStatus = null,
         public readonly ?string $providerCode = null,
-        public readonly ?array $body = null,
+        ?array $body = null,
         ?Throwable $previous = null,
     ) {
+        $this->body = $body === null ? null : \Ronu\PaymentGateways\Support\SensitiveData::redact($body);
         parent::__construct($message, 0, $previous);
     }
 }

@@ -13,6 +13,9 @@ namespace Ronu\PaymentGateways;
  */
 final readonly class WebhookEvent
 {
+    /** @var array<string, mixed> */
+    public array $payload;
+
     /**
      * @param  string  $id  Provider event id — use it to drop redeliveries.
      * @param  string  $resourceType  order | payment_intent | charge | refund | capture | authorization | …
@@ -26,7 +29,9 @@ final readonly class WebhookEvent
         public string $resourceType,
         public string $resourceId,
         public ?string $paymentId,
-        public array $payload,
+        array $payload,
         public EventType $kind = EventType::Unknown,
-    ) {}
+    ) {
+        $this->payload = \Ronu\PaymentGateways\Support\SensitiveData::redact($payload);
+    }
 }

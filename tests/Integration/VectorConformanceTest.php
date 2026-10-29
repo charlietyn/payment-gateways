@@ -54,6 +54,6 @@ final class VectorConformanceTest extends GatewayConformanceTestCase
     /** The kit is right; the emulator is not (see docs/PLAN-2.md, mejoras al emulador). */
     public function test_a_captured_payment_cannot_be_canceled(): void
     {
-        $this->markTestIncomplete('The emulator answers 500 to cancel a captured payment (assertTransition throws); a provider answers 400.');
+        parent::test_a_captured_payment_cannot_be_canceled();
     }
 }

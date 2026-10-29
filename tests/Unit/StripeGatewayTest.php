@@ -80,20 +80,22 @@ final class StripeGatewayTest extends TestCase
     public function test_capture_and_refund(): void
     {
         $http = new MockHttp([
+            MockHttp::json(200, $this->intent(['status' => 'requires_capture'])),
             MockHttp::json(200, $this->intent(['status' => 'succeeded', 'amount_received' => 3000, 'latest_charge' => 'ch_1', 'next_action' => null])),
+            MockHttp::json(200, $this->intent(['status' => 'succeeded', 'amount_received' => 3000])),
             MockHttp::json(200, ['id' => 're_1', 'object' => 'refund', 'amount' => 1000, 'currency' => 'usd', 'status' => 'succeeded', 'payment_intent' => 'pi_123']),
             MockHttp::json(200, $this->intent(['status' => 'succeeded', 'next_action' => null])),
         ]);
         $gateway = GatewayFactory::make('vector', ['emulator' => ['api_url' => 'http://emu.test'], 'credentials' => ['secret_key' => 'sk_test_51abc']], $http->client);
 
         $captured = $gateway->capture('pi_123', Money::of(3000, 'USD'), 'cap-1');
-        $this->assertSame('http://emu.test/vector/v1/payment_intents/pi_123/capture', (string) $http->request(0)->getUri());
-        $this->assertSame(['amount_to_capture' => '3000'], $http->formBody(0));
+        $this->assertSame('http://emu.test/vector/v1/payment_intents/pi_123/capture', (string) $http->request(1)->getUri());
+        $this->assertSame(['amount_to_capture' => '3000'], $http->formBody(1));
         $this->assertSame(3000, $captured->capturedAmount?->minor);
         $this->assertSame('ch_1', $captured->transactionId);
 
         $refund = $gateway->refund('pi_123', Money::of(1000, 'USD'), 'ref-1');
-        $this->assertSame(['payment_intent' => 'pi_123', 'amount' => '1000'], $http->formBody(1));
+        $this->assertSame(['payment_intent' => 'pi_123', 'amount' => '1000'], $http->formBody(3));
         $this->assertSame('re_1', $refund->id);
         $this->assertTrue($refund->succeeded());
         $this->assertSame(1000, $refund->amount->minor);
