@@ -1,6 +1,6 @@
 {
   "name": "ronu/payment-gateways",
-  "description": "One payment contract, three gateways: Mercado Pago Orders, Stripe PaymentIntents and PayPal Orders v2 â€” testable against the Payment Emulator Lab (Plaza, Vector, Harbor).",
+  "description": "One payment contract, three gateways (Mercado Pago Orders, Stripe PaymentIntents, PayPal Orders v2) plus durable payment orchestration on PostgreSQL — testable against the Payment Emulator Lab (Plaza, Vector, Harbor).",
   "type": "library",
   "license": "MIT",
   "homepage": "https://github.com/charlietyn/payment-gateways",
@@ -8,8 +8,23 @@
     "issues": "https://github.com/charlietyn/payment-gateways/issues",
     "source": "https://github.com/charlietyn/payment-gateways"
   },
-  "keywords": ["payments", "payment-gateway", "checkout", "mercadopago", "stripe", "paypal", "webhooks", "laravel"],
-  "authors": [{ "name": "RonuSoftware" }],
+  "keywords": [
+    "payments",
+    "payment-gateway",
+    "checkout",
+    "mercadopago",
+    "stripe",
+    "paypal",
+    "webhooks",
+    "laravel",
+    "orchestration",
+    "postgresql"
+  ],
+  "authors": [
+    {
+      "name": "RonuSoftware"
+    }
+  ],
   "require": {
     "php": "^8.2",
     "ext-json": "*",
@@ -19,34 +34,49 @@
     "psr/simple-cache": "^2.0 || ^3.0"
   },
   "require-dev": {
-    "illuminate/config": "^11.0 || ^12.0",
-    "illuminate/container": "^11.0 || ^12.0",
-    "illuminate/support": "^11.0 || ^12.0",
+    "laravel/framework": "^12.0",
+    "laravel/pint": "^1.18",
     "phpstan/phpstan": "^2.0",
     "phpunit/phpunit": "^11.0",
     "vlucas/phpdotenv": "^5.6.1"
   },
+  "conflict": {
+    "ronu/payment-orchestration": "*"
+  },
   "suggest": {
-    "illuminate/support": "Laravel bridge: PaymentGatewaysServiceProvider and the payment-gateways config"
+    "ext-pdo_pgsql": "Orchestration: the PostgreSQL store (PostgresStore)",
+    "illuminate/support": "Laravel bridge: PaymentGatewaysServiceProvider and the payment-gateways config",
+    "laravel/framework": "^12.0 for the orchestration Laravel bridge (Orchestration\\Laravel\\PaymentServiceProvider, registered explicitly)"
   },
   "autoload": {
-    "psr-4": { "Ronu\\PaymentGateways\\": "src/" }
+    "psr-4": {
+      "Ronu\\PaymentGateways\\": "src/"
+    }
   },
   "autoload-dev": {
-    "psr-4": { "Ronu\\PaymentGateways\\Tests\\": "tests/" }
+    "psr-4": {
+      "Ronu\\PaymentGateways\\Tests\\": "tests/"
+    }
   },
   "extra": {
     "laravel": {
-      "providers": ["Ronu\\PaymentGateways\\Laravel\\PaymentGatewaysServiceProvider"]
+      "providers": [
+        "Ronu\\PaymentGateways\\Laravel\\PaymentGatewaysServiceProvider"
+      ]
     }
   },
   "scripts": {
     "test": "phpunit --testsuite unit",
+    "test:orchestration-postgres": "phpunit --testsuite orchestration-postgres",
     "test:integration": "phpunit --testsuite integration",
     "test:contract": "phpunit --testsuite contract",
-    "analyse": "phpstan analyse --memory-limit=512M"
+    "analyse": "phpstan analyse --memory-limit=1G",
+    "format": "pint src/Orchestration tests/Orchestration",
+    "format:check": "pint --test src/Orchestration tests/Orchestration"
   },
-  "config": { "sort-packages": true },
+  "config": {
+    "sort-packages": true
+  },
   "minimum-stability": "stable",
   "prefer-stable": true
 }

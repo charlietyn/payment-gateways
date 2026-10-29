@@ -14,7 +14,7 @@ Mercado Pago · Stripe · PayPal — el mismo código, en el emulador y en produ
 ![Laravel](https://img.shields.io/badge/Laravel-11%20%7C%2012-FF2D20?logo=laravel&logoColor=white)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-[Instalar](#-instalar) · [Configurar](#%EF%B8%8F-configurar) · [Cobrar](#-tres-formas-de-cobrar) · [Webhooks](#-el-flujo-común) · [Probar](#-probar-tu-aplicación) · [Nueva pasarela](#-añadir-otra-pasarela) · [Cambios](CHANGELOG.md) · [Plan](docs/PLAN-2.md)
+[Instalar](#-instalar) · [Configurar](#%EF%B8%8F-configurar) · [Cobrar](#-tres-formas-de-cobrar) · [Webhooks](#-el-flujo-común) · [Probar](#-probar-tu-aplicación) · [Nueva pasarela](#-añadir-otra-pasarela) · [Orquestación](docs/orquestacion.md) · [Cambios](CHANGELOG.md) · [Plan](docs/PLAN-2.md)
 
 </div>
 
@@ -347,6 +347,14 @@ final class AdyenConformanceTest extends GatewayConformanceTestCase { /* gateway
 
 Paso a paso: [docs/anadir-una-pasarela.md](docs/anadir-una-pasarela.md).
 
+## 🏦 Orquestación de pagos
+
+`Ronu\PaymentGateways\Orchestration` coordina el cobro de forma duradera sobre PostgreSQL. Persiste el
+intento antes de llamar al proveedor, deja lo ambiguo como `UNKNOWN` sin reenviarlo, y confirma captura,
+ledger y outbox juntos. También incluye workers de recuperación, refunds con reserva de saldo
+(deshabilitados por defecto), disputas, eventos financieros y operación por consola. Antes era el paquete
+`ronu/payment-orchestration`. Guía y migración: [docs/orquestacion.md](docs/orquestacion.md).
+
 ## ⚠️ Límites conocidos
 
 - **El emulador no tiene Checkout Pro ni Checkout Sessions.** Con `environment: emulator`,
@@ -361,9 +369,18 @@ Paso a paso: [docs/anadir-una-pasarela.md](docs/anadir-una-pasarela.md).
 
 ## 🧪 Tests
 
+El driver Mercado Pago implementa el contrato opcional `RefundLookup` para
+consultar un reembolso individual de Orders mediante `getRefund($orderId, $refundId)`.
+Valida orden, transacción de pago, ID, importe y moneda; devuelve `null` si no
+encuentra evidencia individual. Usa únicamente GET y no correlaciona por importe.
+La consulta de refunds de Payments API numérica aún no está implementada.
+Validación local: Plaza corregido conserva dos reembolsos del mismo importe,
+sus IDs y su consulta posterior. No implica certificación sandbox/live.
+
 ```bash
 composer test        # unitarios y el kit de conformidad contra FakeMercadoPago
 composer analyse     # PHPStan nivel 8
+composer test:orchestration-postgres  # orquestación contra un PostgreSQL aislado (ver docs/orquestacion.md)
 
 # Cada petición contra el OpenAPI oficial de su proveedor (los specs que guarda el lab)
 PAYMENT_CONTRACTS_DIR=../payment-emulator-lab/contracts composer test:contract

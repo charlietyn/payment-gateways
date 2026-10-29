@@ -1,5 +1,11 @@
+includes:
+    - phpstan-baseline.neon
+
 parameters:
     level: 8
     paths:
         - src
     treatPhpDocTypesAsCertain: false
+    # Orchestration: transaction state and provider reads change between calls; do not memoize their types.
+    # https://phpstan.org/config-reference#rememberpossiblyimpurefunctionvalues
+    rememberPossiblyImpureFunctionValues: false

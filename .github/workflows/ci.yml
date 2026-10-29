@@ -17,8 +17,9 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: json, openssl
+          extensions: json, openssl, pdo_pgsql
           coverage: none
       - run: composer update --no-interaction --no-progress --prefer-dist
       - run: composer test
       - run: composer analyse
+      - run: composer format:check

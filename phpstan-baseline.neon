@@ -1,0 +1,739 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Account\:\:webhookVerifiers\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Account.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Actor\:\:__construct\(\) has parameter \$capabilities with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Actor.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\CanonicalJson\:\:encode\(\) has parameter \$data with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/CanonicalJson.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\CanonicalJson\:\:normalize\(\) has parameter \$data with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/CanonicalJson.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\CanonicalJson\:\:normalize\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/CanonicalJson.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\CompensationCoordinator\:\:acknowledge\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/CompensationCoordinator.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Contracts\\FinancialEventConsumer\:\:consume\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Contracts/FinancialEventConsumer.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Contracts\\Fulfillment\:\:compensate\(\) has parameter \$payment with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Contracts/Fulfillment.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Contracts\\Fulfillment\:\:deliver\(\) has parameter \$payment with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Contracts/Fulfillment.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Contracts\\ManualCompensation\:\:acknowledgeCompensation\(\) has parameter \$acknowledgement with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Contracts/ManualCompensation.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Contracts\\PaymentStore\:\:insertIntent\(\) has parameter \$intent with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Contracts/PaymentStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Contracts\\PaymentStore\:\:insertOperation\(\) has parameter \$operation with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Contracts/PaymentStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Contracts\\PaymentStore\:\:intent\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Contracts/PaymentStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Contracts\\PaymentStore\:\:intentBySubject\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Contracts/PaymentStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Contracts\\PaymentStore\:\:operation\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Contracts/PaymentStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Contracts\\PaymentStore\:\:operationByKey\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Contracts/PaymentStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Contracts\\PaymentStore\:\:recordCapture\(\) has parameter \$intent with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Contracts/PaymentStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Contracts\\PaymentStore\:\:recordEvent\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Contracts/PaymentStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Contracts\\PaymentStore\:\:saveIntent\(\) has parameter \$intent with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Contracts/PaymentStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Contracts\\PaymentStore\:\:saveOperation\(\) has parameter \$operation with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Contracts/PaymentStore.php
+
+		-
+			message: '#^Cannot access property \$minor on Ronu\\PaymentGateways\\Money\|null\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: src/Orchestration/Coordinator.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Coordinator\:\:apply\(\) has parameter \$observed with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Coordinator.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Coordinator\:\:checkout\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Coordinator.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Coordinator\:\:operationView\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Coordinator.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Coordinator\:\:replay\(\) has parameter \$operation with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Coordinator.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Coordinator\:\:replay\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Coordinator.php
+
+		-
+			message: '#^Offset ''account_alias'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Orchestration/Coordinator.php
+
+		-
+			message: '#^Offset ''account_identity'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: src/Orchestration/Coordinator.php
+
+		-
+			message: '#^Offset ''amount_minor'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Orchestration/Coordinator.php
+
+		-
+			message: '#^Offset ''currency'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: src/Orchestration/Coordinator.php
+
+		-
+			message: '#^Offset ''fulfillment'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Orchestration/Coordinator.php
+
+		-
+			message: '#^Offset ''next_action'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Orchestration/Coordinator.php
+
+		-
+			message: '#^Offset ''reference'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: src/Orchestration/Coordinator.php
+
+		-
+			message: '#^Offset ''state'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 3
+			path: src/Orchestration/Coordinator.php
+
+		-
+			message: '#^Offset ''subject'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Orchestration/Coordinator.php
+
+		-
+			message: '#^Offset ''version'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: src/Orchestration/Coordinator.php
+
+		-
+			message: '#^Parameter \#1 \$observed of method Ronu\\PaymentGateways\\Orchestration\\Coordinator\:\:apply\(\) expects array, array\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Orchestration/Coordinator.php
+
+		-
+			message: '#^Parameter \#2 \$remoteTransaction of method Ronu\\PaymentGateways\\Orchestration\\Contracts\\PaymentStore\:\:recordCapture\(\) expects string, string\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Orchestration/Coordinator.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Laravel\\ConfiguredAccounts\:\:__construct\(\) has parameter \$configuration with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Laravel/ConfiguredAccounts.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Laravel\\ConfiguredAccounts\:\:previousWebhookSecret\(\) has parameter \$config with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Laravel/ConfiguredAccounts.php
+
+		-
+			message: '#^Cannot cast array\|bool\|float\|int\|string\|null to string\.$#'
+			identifier: cast.string
+			count: 20
+			path: src/Orchestration/Laravel/PaymentCommand.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Laravel\\PaymentCommand\:\:compensationStatus\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Laravel/PaymentCommand.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Laravel\\PaymentCommand\:\:work\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Laravel/PaymentCommand.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\Laravel\\PaymentRuntime\:\:__construct\(\) has parameter \$configuration with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/Laravel/PaymentRuntime.php
+
+		-
+			message: '#^Cannot access offset ''config'' on Illuminate\\Contracts\\Foundation\\Application\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Orchestration/Laravel/PaymentServiceProvider.php
+
+		-
+			message: '#^Anonymous function should return array\<string, mixed\> but returns array\<string, mixed\>\|false\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Cannot access offset ''currency'' on array\<string, mixed\>\|false\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Cannot access offset ''exceeds'' on array\<string, mixed\>\|false\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Cannot access offset ''exhausted'' on array\<string, mixed\>\|false\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Cannot access offset ''intent_reference'' on array\<string, mixed\>\|false\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 4
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Cannot access offset ''invalid'' on array\<string, mixed\>\|false\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Cannot access offset ''minor'' on array\<string, mixed\>\|false\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Cannot access offset ''oldest_due_seconds'' on array\<string, mixed\>\|false\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Cannot access offset ''pending'' on array\<string, mixed\>\|false\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Cannot access offset ''resource_id'' on array\<string, mixed\>\|false\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Cannot access offset ''stalled'' on array\<string, mixed\>\|false\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:alerts\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:bindReviewedRefund\(\) has parameter \$audit with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:claimEvent\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:claimInbox\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:claimReconciliation\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:completeManualCompensation\(\) has parameter \$ack with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:createOperationFor\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:exhaustedItems\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:insertIntent\(\) has parameter \$intent with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:insertOperation\(\) has parameter \$operation with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:intent\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:intentByProvider\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:intentBySubject\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:metrics\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:one\(\) has parameter \$args with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:one\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:operation\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:operationByKey\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:pendingDisputeIds\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:pendingRefundReferences\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:query\(\) has parameter \$args with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:queueShape\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:queueStatus\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:receiveWebhook\(\) has parameter \$headers with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:recordCapture\(\) has parameter \$intent with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:recordDispute\(\) has parameter \$observed with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:recordEvent\(\) has parameter \$payload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:recordExternalRefund\(\) has parameter \$observed with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:refundByKey\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:refundOperation\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:replayByKey\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:replayExhausted\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:reserveRefund\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:sameReplay\(\) has parameter \$decision with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:sameReplay\(\) has parameter \$existing with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:sameReplay\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:saveIntent\(\) has parameter \$intent with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:saveOperation\(\) has parameter \$operation with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:updateRefundBalance\(\) has parameter \$intent with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:verifyWebhook\(\) has parameter \$headers with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Offset ''account_identity'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Offset ''provider_id'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Offset ''reference'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Offset ''state'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Parameter \#1 \$json of function json_decode expects string, int\|string\|null given\.$#'
+			identifier: argument.type
+			count: 2
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Property Ronu\\PaymentGateways\\Orchestration\\PostgresStore\:\:\$tables type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/PostgresStore.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\RecoveryWorker\:\:inbox\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/RecoveryWorker.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\RecoveryWorker\:\:outbox\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/RecoveryWorker.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\RecoveryWorker\:\:reconcile\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/RecoveryWorker.php
+
+		-
+			message: '#^Offset ''provider_id'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Orchestration/RecoveryWorker.php
+
+		-
+			message: '#^Offset ''reference'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Orchestration/RecoveryWorker.php
+
+		-
+			message: '#^Offset ''state'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Orchestration/RecoveryWorker.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\RefundCoordinator\:\:apply\(\) has parameter \$intent with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/RefundCoordinator.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\RefundCoordinator\:\:apply\(\) has parameter \$refund with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/RefundCoordinator.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\RefundCoordinator\:\:historical\(\) has parameter \$intent with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/RefundCoordinator.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\RefundCoordinator\:\:ownedIntent\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/RefundCoordinator.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\RefundCoordinator\:\:request\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/RefundCoordinator.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\RefundCoordinator\:\:requestCompensation\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/RefundCoordinator.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\RefundCoordinator\:\:send\(\) has parameter \$intent with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/RefundCoordinator.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\RefundCoordinator\:\:send\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/RefundCoordinator.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\RefundCoordinator\:\:send\(\) should return array but returns array\|null\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Orchestration/RefundCoordinator.php
+
+		-
+			message: '#^Method Ronu\\PaymentGateways\\Orchestration\\RefundCoordinator\:\:view\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Orchestration/RefundCoordinator.php
+
+		-
+			message: '#^Offset ''provider_id'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 3
+			path: src/Orchestration/RefundCoordinator.php
+
+		-
+			message: '#^Offset ''state'' might not exist on array\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: src/Orchestration/RefundCoordinator.php
+
+		-
+			message: '#^Parameter \#1 \$intent of method Ronu\\PaymentGateways\\Orchestration\\RefundCoordinator\:\:historical\(\) expects array, array\|null given\.$#'
+			identifier: argument.type
+			count: 2
+			path: src/Orchestration/RefundCoordinator.php
+
+		-
+			message: '#^Parameter \#1 \$refund of method Ronu\\PaymentGateways\\Orchestration\\RefundCoordinator\:\:apply\(\) expects array, array\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Orchestration/RefundCoordinator.php
+
+		-
+			message: '#^Parameter \#2 \$intent of method Ronu\\PaymentGateways\\Orchestration\\RefundCoordinator\:\:apply\(\) expects array, array\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Orchestration/RefundCoordinator.php
