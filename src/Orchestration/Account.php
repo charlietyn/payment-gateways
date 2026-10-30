@@ -28,7 +28,11 @@ final readonly class Account
         }
     }
 
-    /** Verifiers for an incoming webhook: the current secret first, the previous one while its window is open. */
+    /**
+     * Verifiers for an incoming webhook: the current secret first, the previous one while its window is open.
+     *
+     * @return list<\Ronu\PaymentGateways\Contracts\Gateway>
+     */
     public function webhookVerifiers(int $now): array
     {
         return $this->previousWebhookGateway !== null && $now < $this->previousWebhookUntil

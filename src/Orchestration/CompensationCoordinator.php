@@ -13,6 +13,7 @@ final class CompensationCoordinator
     {
     }
 
+    /** @return array<string, mixed> */
     public function acknowledge(string $reference, string $actor, string $evidence, string $key): array
     {
         foreach ([$actor, $evidence, $key] as $value) {

@@ -64,7 +64,7 @@ final class PaymentController
             if (strlen($body) > 262144) {
                 throw new PaymentError('webhook_too_large', 413);
             }
-            $this->runtime->store()->receiveWebhook($this->runtime->accounts()->account($account), $request->headers->all(), $body);
+            $this->runtime->store()->receiveWebhook($this->runtime->accounts()->account($account), array_map(static fn (array $values): array => array_values(array_filter($values, is_string(...))), $request->headers->all()), $body);
             return ['received' => true, 'httpStatus' => 200];
         });
     }

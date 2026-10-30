@@ -14,6 +14,7 @@ final class Coordinator
     {
     }
 
+    /** @return array<string, mixed> */
     public function checkout(Actor $actor, string $subject, string $revision, string $key, ?string $alias = null): array
     {
         if (!preg_match('/^[A-Za-z0-9_.:-]{1,128}$/D', $key)) {
@@ -26,7 +27,7 @@ final class Coordinator
             if ($existing['state'] !== 'PREPARED') {
                 return $replay;
             }
-            $historical = $this->store->intent($existing['intent_reference']);
+            $historical = $this->store->intent($existing['intent_reference']) ?? throw new PaymentError('not_found', 404);
             $account = $this->accounts->historical($historical['account_alias'], $historical['account_identity']);
             if ($account->identity() !== $historical['account_identity']) {
                 throw new PaymentError('account_identity_changed', 503);
@@ -79,7 +80,7 @@ final class Coordinator
         $this->replay($actor, $operation, $subject, $revision);
         $claimed = $this->store->transaction(function () use ($operation): bool {
             $this->store->intent($operation['intent_reference'], true);
-            $current = $this->store->operation($operation['reference']);
+            $current = $this->store->operation($operation['reference']) ?? throw new PaymentError('not_found', 404);
             if ($current['state'] !== 'PREPARED') {
                 return false;
             }
@@ -90,7 +91,7 @@ final class Coordinator
         if (!$claimed) {
             return $this->operationView($actor, $operation['reference'], 'create');
         }
-        $intent = $this->store->intent($operation['intent_reference']);
+        $intent = $this->store->intent($operation['intent_reference']) ?? throw new PaymentError('not_found', 404);
         try {
             $payment = $account->gateway->createPayment(new CreatePayment(
                 amount: $quote->amount,
@@ -102,7 +103,7 @@ final class Coordinator
             // Even a malformed 2xx may have charged money. Never turn uncertainty into a retry.
             $this->store->transaction(function () use ($operation): void {
                 $this->store->intent($operation['intent_reference'], true);
-                $current = $this->store->operation($operation['reference']);
+                $current = $this->store->operation($operation['reference']) ?? throw new PaymentError('not_found', 404);
                 if ($current['state'] === 'SENDING') {
                     $current['state'] = 'UNKNOWN';
                     $this->store->saveOperation($current);
@@ -112,16 +113,21 @@ final class Coordinator
         return $this->operationView($actor, $operation['reference'], 'create');
     }
 
+    /**
+     * @param array<string, mixed> $operation
+     * @return array<string, mixed>
+     */
     private function replay(Actor $actor, array $operation, string $subject, string $revision): array
     {
         $actor->require('create', $operation['account_alias']);
-        $intent = $this->store->intent($operation['intent_reference']);
+        $intent = $this->store->intent($operation['intent_reference']) ?? throw new PaymentError('not_found', 404);
         if ($intent['subject'] !== $subject || $intent['quote_revision'] !== $revision) {
             throw new PaymentError('idempotency_conflict', 409);
         }
         return $this->operationView($actor, $operation['reference'], 'create');
     }
 
+    /** @return array<string, mixed> */
     public function operationView(Actor $actor, string $reference, string $capability = 'read'): array
     {
         $operation = $this->store->operation($reference);
@@ -129,7 +135,7 @@ final class Coordinator
             throw new PaymentError('not_found', 404);
         }
         $actor->require($capability, $operation['account_alias']);
-        $intent = $this->store->intent($operation['intent_reference']);
+        $intent = $this->store->intent($operation['intent_reference']) ?? throw new PaymentError('not_found', 404);
         return [
             'schemaVersion' => 1, 'operationReference' => $reference, 'reference' => $intent['reference'], 'operationState' => $operation['state'],
             'financialState' => $intent['state'], 'fulfillmentState' => $intent['fulfillment'],
@@ -158,6 +164,7 @@ final class Coordinator
         return $this->apply($intent, $payment, $account);
     }
 
+    /** @param array<string, mixed> $observed */
     public function apply(array $observed, Payment $payment, Account $account, ?string $operationReference = null): bool
     {
         $amount = new Money((int) $observed['amount_minor'], $observed['currency']);
@@ -184,7 +191,7 @@ final class Coordinator
             $action = ['type' => $payment->nextAction->type, 'url' => $payment->nextAction->url, 'returnsToMerchant' => $payment->nextAction->returnsToMerchant];
         }
         return $this->store->transaction(function () use ($observed, $payment, $operationReference, $action): bool {
-            $current = $this->store->intent($observed['reference'], true);
+            $current = $this->store->intent($observed['reference'], true) ?? throw new PaymentError('not_found', 404);
             if ($current['version'] !== $observed['version']) {
                 return false;
             }
@@ -206,6 +213,9 @@ final class Coordinator
             $current['next_action'] = $action;
             $current['version']++;
             if ($payment->status === PaymentStatus::Captured) {
+                if ($payment->capturedAmount === null || $payment->transactionId === null) {
+                    throw new PaymentError('capture_evidence_missing', 503);
+                }
                 $current['captured_minor'] = (string) $payment->capturedAmount->minor;
                 $this->store->recordCapture($current, $payment->transactionId);
                 if ($observed['captured_minor'] === '0') {
@@ -231,7 +241,7 @@ final class Coordinator
     public function recoverOperation(string $operationReference, Payment $payment, int $expectedVersion): bool
     {
         $operation = $this->store->operation($operationReference) ?? throw new PaymentError('not_found', 404);
-        $intent = $this->store->intent($operation['intent_reference']);
+        $intent = $this->store->intent($operation['intent_reference']) ?? throw new PaymentError('not_found', 404);
         if ($intent['version'] !== $expectedVersion) {
             return false;
         }

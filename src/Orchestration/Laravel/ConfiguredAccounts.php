@@ -13,6 +13,7 @@ final class ConfiguredAccounts implements AccountResolver
     /** Longest webhook secret rotation window accepted: 7 days. */
     public const MAX_ROTATION_SECONDS = 604800;
 
+    /** @param array<string, mixed> $configuration */
     public function __construct(private array $configuration)
     {
     }
@@ -79,6 +80,7 @@ final class ConfiguredAccounts implements AccountResolver
      * secret without a valid end, an end too far away, or a secret equal to the current one makes the
      * account not ready rather than silently accepting either secret forever.
      *
+     * @param array<string, mixed> $config
      * @return array{0: ?\Ronu\PaymentGateways\Contracts\Gateway, 1: ?int}
      */
     private function previousWebhookSecret(array $config): array

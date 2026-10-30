@@ -12,6 +12,7 @@ use Ronu\PaymentGateways\Orchestration\{Coordinator, DisputeCoordinator, Gateway
 final class PaymentRuntime
 {
     private ?PostgresStore $storage = null;
+    /** @param array<string, mixed> $configuration */
     public function __construct(private Container $container, private array $configuration)
     {
     }

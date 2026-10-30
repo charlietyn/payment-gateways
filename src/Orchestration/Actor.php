@@ -6,7 +6,10 @@ namespace Ronu\PaymentGateways\Orchestration;
 
 final readonly class Actor
 {
-    /** @param list<string> $accounts @param list<string> $capabilities */
+    /**
+     * @param list<string> $accounts
+     * @param list<string> $capabilities
+     */
     public function __construct(public string $project, public string $tenant, public string $owner, public array $accounts, public array $capabilities)
     {
         foreach ([$project, $tenant, $owner] as $id) {

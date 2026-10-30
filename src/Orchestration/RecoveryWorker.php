@@ -13,6 +13,7 @@ final class RecoveryWorker
     {
     }
 
+    /** @return array<string, int> */
     public function inbox(int $limit = 200): array
     {
         if ($limit < 1 || $limit > 200) {
@@ -62,6 +63,7 @@ final class RecoveryWorker
         return $result;
     }
 
+    /** @return array<string, int> */
     public function outbox(int $limit = 200): array
     {
         if ($limit < 1 || $limit > 200) {
@@ -111,6 +113,7 @@ final class RecoveryWorker
         return $result;
     }
 
+    /** @return array<string, int> */
     public function reconcile(int $limit = 200): array
     {
         if ($limit < 1 || $limit > 200) {
@@ -134,7 +137,7 @@ final class RecoveryWorker
                         $disputesResolved = false;
                     }
                 }
-                $intent = $this->store->intent($intent['reference']);
+                $intent = $this->store->intent($intent['reference']) ?? throw new PaymentError('not_found', 404);
                 $refundsResolved = true;
                 // A terminal payment may still own an unresolved refund. Each individual operation
                 // is recovered read-only; one missing ID cannot prevent its siblings progressing.
@@ -161,7 +164,7 @@ final class RecoveryWorker
                 }
                 // Refund evidence may have changed the local version. Capture the fresh version
                 // before a separate payment observation, never after its provider I/O.
-                $intent = $this->store->intent($intent['reference']);
+                $intent = $this->store->intent($intent['reference']) ?? throw new PaymentError('not_found', 404);
                 // An uncertain create with no provider ID needs a verified webhook or manual evidence.
                 // Never repeat create in an attempt to discover that ID.
                 if ($intent['provider_id'] === null) {
