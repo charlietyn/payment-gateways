@@ -14,6 +14,7 @@ final class RefundCoordinator
     {
     }
 
+    /** @return array<string, mixed> */
     public function request(Actor $actor, string $intentReference, Money $amount, string $key): array
     {
         $intent = $this->ownedIntent($actor, $intentReference, 'refund');
@@ -24,7 +25,11 @@ final class RefundCoordinator
         return $this->view($actor, $refund['reference'], 'refund');
     }
 
-    /** Trusted product/worker port, never an HTTP action. The durable rejection authorizes compensation. */
+    /**
+     * Trusted product/worker port, never an HTTP action. The durable rejection authorizes compensation.
+     *
+     * @return array<string, mixed>
+     */
     public function requestCompensation(string $intentReference): array
     {
         $intent = $this->store->intent($intentReference) ?? throw new PaymentError('not_found', 404);
@@ -47,6 +52,10 @@ final class RefundCoordinator
         return ['operationReference' => $refund['reference'],'operationState' => $refund['state']];
     }
 
+    /**
+     * @param array<string, mixed> $intent
+     * @return array<string, mixed>
+     */
     private function send(array $intent, Money $amount, string $key): array
     {
         if ($amount->currency !== $intent['currency'] || $amount->minor < 1) {
@@ -80,7 +89,7 @@ final class RefundCoordinator
                 $this->store->markRefundUncertain($refund['reference']);
             }
         }
-        return $this->store->refundOperation($refund['reference']);
+        return $this->store->refundOperation($refund['reference']) ?? throw new PaymentError('not_found', 404);
     }
 
     /** Explicit worker recovery, independent of accept-new. Never retries a write. */
@@ -93,7 +102,7 @@ final class RefundCoordinator
         if (!in_array($refund['state'], ['SENDING','UNKNOWN','PENDING'], true)) {
             throw new PaymentError('refund_not_sent', 409);
         }
-        $intent = $this->store->intent($refund['intent_reference']);
+        $intent = $this->store->intent($refund['intent_reference']) ?? throw new PaymentError('not_found', 404);
         $account = $this->historical($intent);
         $this->store->assertProviderIoAllowed();
         $evidence = $this->reader->read($account, $intent['provider_id'], $refund['provider_id'], $refund['remote_key']);
@@ -101,7 +110,7 @@ final class RefundCoordinator
             return false;
         }
         $this->apply($refund, $intent, $evidence);
-        return $this->store->refundOperation($reference)['state'] === 'COMPLETED';
+        return ($this->store->refundOperation($reference) ?? throw new PaymentError('not_found', 404))['state'] === 'COMPLETED';
     }
 
     /** Console-only reviewed correlation; the provider must independently prove ID, payment and amount. */
@@ -113,7 +122,7 @@ final class RefundCoordinator
             }
         }
         $refund = $this->store->refundOperation($reference) ?? throw new PaymentError('not_found', 404);
-        $intent = $this->store->intent($refund['intent_reference']);
+        $intent = $this->store->intent($refund['intent_reference']) ?? throw new PaymentError('not_found', 404);
         $account = $this->historical($intent);
         $this->store->assertProviderIoAllowed();
         $evidence = $this->reader->read($account, $intent['provider_id'], $providerId, '');
@@ -125,10 +134,11 @@ final class RefundCoordinator
             throw new PaymentError('refund_evidence_invalid', 503);
         }
         $this->store->bindReviewedRefund($reference, $providerId, ['version' => 1, 'providerId' => $providerId, 'actor' => $actor, 'review' => $review]);
-        $this->apply($this->store->refundOperation($reference), $intent, $evidence);
-        return $this->store->refundOperation($reference)['state'] === 'COMPLETED';
+        $this->apply($this->store->refundOperation($reference) ?? throw new PaymentError('not_found', 404), $intent, $evidence);
+        return ($this->store->refundOperation($reference) ?? throw new PaymentError('not_found', 404))['state'] === 'COMPLETED';
     }
 
+    /** @return array<string, mixed> */
     public function view(Actor $actor, string $reference, string $capability = 'read'): array
     {
         if (!in_array($capability, ['read','refund'], true)) {
@@ -141,6 +151,7 @@ final class RefundCoordinator
             'currency' => $refund['currency'],'httpStatus' => $refund['state'] === 'COMPLETED' ? 200 : 202];
     }
 
+    /** @return array<string, mixed> */
     private function ownedIntent(Actor $actor, string $reference, string $capability): array
     {
         $intent = $this->store->intent($reference);
@@ -151,6 +162,7 @@ final class RefundCoordinator
         return $intent;
     }
 
+    /** @param array<string, mixed> $intent */
     private function historical(array $intent): Account
     {
         if ($intent['provider_id'] === null || $intent['captured_minor'] === '0') {
@@ -163,6 +175,10 @@ final class RefundCoordinator
         return $account;
     }
 
+    /**
+     * @param array<string, mixed> $intent
+     * @param array<string, mixed> $refund
+     */
     private function apply(array $refund, array $intent, Refund $evidence): void
     {
         if ($evidence->id === '' || strlen($evidence->id) > 128 || $evidence->paymentId !== $intent['provider_id'] ||

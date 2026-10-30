@@ -12,6 +12,7 @@ use Ronu\PaymentGateways\Orchestration\Contracts\PaymentStore;
 /** Tables are provisioned by the consumer's versioned schema, never by boot. */
 final class PostgresStore implements PaymentStore
 {
+    /** @var array<string, string> */
     private array $tables;
 
     /** @param array<string,array{schema:string,table:string}> $tables */
@@ -71,6 +72,7 @@ final class PostgresStore implements PaymentStore
         $this->query('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [$scope.'/'.$subject]);
     }
 
+    /** @return array<string, mixed>|null */
     public function operationByKey(string $scope, string $key, ?string $alias): ?array
     {
         $sql = "SELECT data FROM {$this->tables['operations']} WHERE scope=? AND request_key=? AND kind='create'";
@@ -86,16 +88,19 @@ final class PostgresStore implements PaymentStore
         return isset($rows[0]) ? json_decode($rows[0], true, 32, JSON_THROW_ON_ERROR) : null;
     }
 
+    /** @return array<string, mixed>|null */
     public function intentBySubject(string $scope, string $subject): ?array
     {
         return $this->one("SELECT data FROM {$this->tables['intents']} WHERE scope=? AND subject=?", [$scope, $subject]);
     }
 
+    /** @return array<string, mixed>|null */
     public function intentByProvider(string $accountIdentity, string $providerId): ?array
     {
         return $this->one("SELECT data FROM {$this->tables['intents']} WHERE data->>'account_identity'=? AND data->>'provider_id'=?", [$accountIdentity,$providerId]);
     }
 
+    /** @return array<string, mixed>|null */
     public function intent(string $reference, bool $lock = false): ?array
     {
         if ($lock && !$this->db->inTransaction()) {
@@ -104,38 +109,48 @@ final class PostgresStore implements PaymentStore
         return $this->one("SELECT data FROM {$this->tables['intents']} WHERE reference=?".($lock ? ' FOR UPDATE' : ''), [$reference]);
     }
 
+    /** @return array<string, mixed>|null */
     public function operation(string $reference): ?array
     {
         return $this->one("SELECT data FROM {$this->tables['operations']} WHERE reference=?", [$reference]);
     }
 
+    /** @return array<string, mixed>|null */
     public function createOperationFor(string $intentReference): ?array
     {
         return $this->one("SELECT data FROM {$this->tables['operations']} WHERE intent_reference=? AND kind='create'", [$intentReference]);
     }
 
-    /** Known case IDs only. Never discover a dispute by matching aggregate money. */
+    /**
+     * Known case IDs only. Never discover a dispute by matching aggregate money.
+     *
+     * @return list<string>
+     */
     public function pendingDisputeIds(string $intentReference): array
     {
-        return $this->query("SELECT data->>'provider_id' FROM {$this->tables['operations']} WHERE intent_reference=? AND kind='dispute' AND data->>'dispute_state'='opened' AND data->>'provider_id' IS NOT NULL ORDER BY reference", [$intentReference])->fetchAll(PDO::FETCH_COLUMN);
+        return $this->strings("SELECT data->>'provider_id' FROM {$this->tables['operations']} WHERE intent_reference=? AND kind='dispute' AND data->>'dispute_state'='opened' AND data->>'provider_id' IS NOT NULL ORDER BY reference", [$intentReference]);
     }
 
+    /** @param array<string, mixed> $intent */
     public function insertIntent(array $intent): void
     {
         $this->query("INSERT INTO {$this->tables['intents']} (reference,scope,subject,version,data) VALUES (?,?,?,?,?::jsonb)", [$intent['reference'], $intent['scope'], $intent['subject'], $intent['version'], CanonicalJson::encode($intent)]);
         $this->query("INSERT INTO {$this->tables['reconciliation']} (reference) VALUES (?)", [$intent['reference']]);
     }
 
+    /** @param array<string, mixed> $operation */
     public function insertOperation(array $operation): void
     {
         $this->query("INSERT INTO {$this->tables['operations']} (reference,intent_reference,scope,account_alias,kind,request_key,data) VALUES (?,?,?,?,?,?,?::jsonb)", [$operation['reference'], $operation['intent_reference'], $operation['scope'], $operation['account_alias'], $operation['kind'], $operation['key'], CanonicalJson::encode($operation)]);
     }
 
+    /** @param array<string, mixed> $intent */
     public function saveIntent(array $intent, int $expectedVersion): bool
     {
         return $this->query("UPDATE {$this->tables['intents']} SET version=?,data=?::jsonb WHERE reference=? AND version=?", [$intent['version'], CanonicalJson::encode($intent), $intent['reference'], $expectedVersion])->rowCount() === 1;
     }
 
+    /** @param array<string, mixed> $operation */
     public function saveOperation(array $operation): void
     {
         if ($this->query("UPDATE {$this->tables['operations']} SET data=?::jsonb WHERE reference=?", [CanonicalJson::encode($operation), $operation['reference']])->rowCount() !== 1) {
@@ -143,15 +158,17 @@ final class PostgresStore implements PaymentStore
         }
     }
 
+    /** @param array<string, mixed> $intent */
     public function recordCapture(array $intent, string $remoteTransaction): void
     {
         $this->query("INSERT INTO {$this->tables['transactions']} (intent_reference,account_identity,remote_id,kind,minor,currency) VALUES (?,?,?,'capture',?,?) ON CONFLICT (account_identity,remote_id,kind) DO NOTHING", [$intent['reference'], $intent['account_identity'], $remoteTransaction, $intent['captured_minor'], $intent['currency']]);
-        $row = $this->query("SELECT intent_reference,minor,currency FROM {$this->tables['transactions']} WHERE account_identity=? AND remote_id=? AND kind='capture'", [$intent['account_identity'], $remoteTransaction])->fetch(PDO::FETCH_ASSOC);
+        $row = $this->row("SELECT intent_reference,minor,currency FROM {$this->tables['transactions']} WHERE account_identity=? AND remote_id=? AND kind='capture'", [$intent['account_identity'], $remoteTransaction]);
         if ($row['intent_reference'] !== $intent['reference'] || (string) $row['minor'] !== $intent['captured_minor'] || $row['currency'] !== $intent['currency']) {
             throw new PaymentError('ledger_conflict', 409);
         }
     }
 
+    /** @param array<string, mixed> $payload */
     public function recordEvent(string $eventId, string $type, array $payload): void
     {
         if (!in_array($type, ['payment.captured','payment.refunded','payment.dispute_updated'], true) || ($payload['version'] ?? null) !== 1) {
@@ -184,7 +201,11 @@ final class PostgresStore implements PaymentStore
         $this->query("INSERT INTO {$this->tables['outbox']} (event_id,intent_reference,type,version,payload) VALUES (?,?,?,1,?::jsonb)", [$eventId, $payload['reference'], $type, CanonicalJson::encode($payload)]);
     }
 
-    /** Claim is committed before a consumer is called; no I/O under a row lock. */
+    /**
+     * Claim is committed before a consumer is called; no I/O under a row lock.
+     *
+     * @return array<string, mixed>|null
+     */
     public function claimEvent(int $leaseSeconds = 60): ?array
     {
         if ($leaseSeconds < 1 || $leaseSeconds > 3600) {
@@ -245,7 +266,11 @@ final class PostgresStore implements PaymentStore
         });
     }
 
-    /** The product has durably acknowledged a business resolution, not a financial reversal. */
+    /**
+     * The product has durably acknowledged a business resolution, not a financial reversal.
+     *
+     * @param array<string, mixed> $ack
+     */
     public function completeManualCompensation(string $reference, array $ack): void
     {
         $this->transaction(function () use ($reference, $ack): void {
@@ -273,7 +298,11 @@ final class PostgresStore implements PaymentStore
         });
     }
 
-    /** Reserve before I/O. UNKNOWN/PENDING/CONFIRMED never release this reservation. */
+    /**
+     * Reserve before I/O. UNKNOWN/PENDING/CONFIRMED never release this reservation.
+     *
+     * @return array<string, mixed>
+     */
     public function reserveRefund(string $intentReference, string $key, int $minor): array
     {
         if ($minor <= 0 || !preg_match('/^[A-Za-z0-9_.:-]{1,128}$/D', $key)) {
@@ -301,7 +330,7 @@ final class PostgresStore implements PaymentStore
             $reference = CanonicalJson::uuid();
             $this->query("INSERT INTO {$this->tables['refunds']} (reference,intent_reference,request_key,remote_key,minor,currency,state) VALUES (?,?,?,?,?,?,'PREPARED')", [$reference, $intentReference, $key, CanonicalJson::uuid(), $minor, $intent['currency']]);
             $this->rearmReconciliation($intentReference);
-            return $this->query("SELECT * FROM {$this->tables['refunds']} WHERE reference=?", [$reference])->fetch(PDO::FETCH_ASSOC);
+            return $this->row("SELECT * FROM {$this->tables['refunds']} WHERE reference=?", [$reference]);
         });
     }
 
@@ -310,19 +339,24 @@ final class PostgresStore implements PaymentStore
         $this->query("UPDATE {$this->tables['refunds']} SET state='UNKNOWN' WHERE reference=? AND state IN ('PREPARED','SENDING','PENDING')", [$reference]);
     }
 
+    /** @return array<string, mixed>|null */
     public function refundOperation(string $reference): ?array
     {
         $row = $this->query("SELECT * FROM {$this->tables['refunds']} WHERE reference=?", [$reference])->fetch(PDO::FETCH_ASSOC);
         return $row ?: null;
     }
 
-    /** Reviewed individual correlation only: keep the reservation and let read-only recovery finish. */
+    /**
+     * Reviewed individual correlation only: keep the reservation and let read-only recovery finish.
+     *
+     * @param array<string, mixed> $audit
+     */
     public function bindReviewedRefund(string $reference, string $providerId, array $audit): void
     {
         $this->transaction(function () use ($reference, $providerId, $audit): void {
             $observed = $this->refundOperation($reference) ?? throw new PaymentError('not_found', 404);
             $intent = $this->intent($observed['intent_reference'], true) ?? throw new PaymentError('not_found', 404);
-            $refund = $this->refundOperation($reference);
+            $refund = $this->refundOperation($reference) ?? throw new PaymentError('not_found', 404);
             $existing = $intent['refund_resolution_audits'][$reference] ?? null;
             if ($existing !== null) {
                 if (CanonicalJson::encode($existing['decision']) !== CanonicalJson::encode($audit)) {
@@ -345,12 +379,17 @@ final class PostgresStore implements PaymentStore
         });
     }
 
-    /** Only sent operations: PREPARED requires a separately authorized command, never worker POST. */
+    /**
+     * Only sent operations: PREPARED requires a separately authorized command, never worker POST.
+     *
+     * @return list<string>
+     */
     public function pendingRefundReferences(string $intentReference): array
     {
-        return $this->query("SELECT reference FROM {$this->tables['refunds']} WHERE intent_reference=? AND state IN ('SENDING','UNKNOWN','PENDING') ORDER BY reference", [$intentReference])->fetchAll(PDO::FETCH_COLUMN);
+        return $this->strings("SELECT reference FROM {$this->tables['refunds']} WHERE intent_reference=? AND state IN ('SENDING','UNKNOWN','PENDING') ORDER BY reference", [$intentReference]);
     }
 
+    /** @return array<string, mixed>|null */
     public function refundByKey(string $intentReference, string $key): ?array
     {
         $row = $this->query("SELECT * FROM {$this->tables['refunds']} WHERE intent_reference=? AND request_key=?", [$intentReference,$key])->fetch(PDO::FETCH_ASSOC);
@@ -361,7 +400,7 @@ final class PostgresStore implements PaymentStore
     {
         return $this->transaction(function () use ($reference): bool {
             $refund = $this->refundOperation($reference) ?? throw new PaymentError('not_found', 404);
-            $intent = $this->intent($refund['intent_reference'], true);
+            $intent = $this->intent($refund['intent_reference'], true) ?? throw new PaymentError('not_found', 404);
             if ($refund['state'] === 'PREPARED' && (($intent['disputed_minor'] ?? '0') !== '0' || ($intent['charged_back_minor'] ?? '0') !== '0')) {
                 throw new PaymentError('dispute_requires_review', 409);
             }
@@ -374,7 +413,7 @@ final class PostgresStore implements PaymentStore
         $this->transaction(function () use ($reference, $providerId): void {
             $refund = $this->refundOperation($reference) ?? throw new PaymentError('not_found', 404);
             $this->intent($refund['intent_reference'], true);
-            $refund = $this->refundOperation($reference);
+            $refund = $this->refundOperation($reference) ?? throw new PaymentError('not_found', 404);
             if ($refund['provider_id'] !== null && $refund['provider_id'] !== $providerId) {
                 throw new PaymentError('refund_evidence_invalid', 409);
             }
@@ -401,13 +440,13 @@ final class PostgresStore implements PaymentStore
             if (!$initial) {
                 throw new PaymentError('not_found', 404);
             }
-            $intent = $this->intent($initial['intent_reference'], true);
-            $refund = $this->query("SELECT * FROM {$this->tables['refunds']} WHERE reference=? FOR UPDATE", [$reference])->fetch(PDO::FETCH_ASSOC);
+            $intent = $this->intent($initial['intent_reference'], true) ?? throw new PaymentError('not_found', 404);
+            $refund = $this->row("SELECT * FROM {$this->tables['refunds']} WHERE reference=? FOR UPDATE", [$reference]);
             if ((int) $refund['minor'] !== $amount->minor || $refund['currency'] !== $amount->currency || ($refund['provider_id'] !== null && $refund['provider_id'] !== $providerRefundId)) {
                 throw new PaymentError('refund_evidence_invalid', 409);
             }
             $this->query("INSERT INTO {$this->tables['transactions']} (intent_reference,account_identity,remote_id,kind,minor,currency) VALUES (?,?,?,'refund',?,?) ON CONFLICT(account_identity,remote_id,kind) DO NOTHING", [$intent['reference'], $intent['account_identity'], $providerRefundId, $amount->minor, $amount->currency]);
-            $ledger = $this->query("SELECT intent_reference,minor,currency FROM {$this->tables['transactions']} WHERE account_identity=? AND remote_id=? AND kind='refund'", [$intent['account_identity'], $providerRefundId])->fetch(PDO::FETCH_ASSOC);
+            $ledger = $this->row("SELECT intent_reference,minor,currency FROM {$this->tables['transactions']} WHERE account_identity=? AND remote_id=? AND kind='refund'", [$intent['account_identity'], $providerRefundId]);
             if ($ledger['intent_reference'] !== $intent['reference'] || (int) $ledger['minor'] !== $amount->minor || $ledger['currency'] !== $amount->currency) {
                 throw new PaymentError('refund_evidence_invalid', 409);
             }
@@ -421,7 +460,11 @@ final class PostgresStore implements PaymentStore
         });
     }
 
-    /** Individual evidence only. Uncorrelated UNKNOWN commands stay reserved, even for equal amounts. */
+    /**
+     * Individual evidence only. Uncorrelated UNKNOWN commands stay reserved, even for equal amounts.
+     *
+     * @param array<string, mixed> $observed
+     */
     public function recordExternalRefund(array $observed, \Ronu\PaymentGateways\Refund $refund): bool
     {
         if ($refund->id === '' || strlen($refund->id) > 128 || !$refund->succeeded() || $refund->amount->minor < 1 || $refund->paymentId !== $observed['provider_id'] || $refund->amount->currency !== $observed['currency']) {
@@ -442,14 +485,14 @@ final class PostgresStore implements PaymentStore
             $journal = $this->query("SELECT data FROM {$this->tables['operations']} WHERE scope=? AND account_alias=? AND kind='observation' AND request_key=?", [$intent['scope'],$intent['account_alias'],$key])->fetchColumn();
             $fingerprint = hash('sha256', CanonicalJson::encode(['intent' => $intent['reference'],'account' => $intent['account_identity'],'payment' => $refund->paymentId,'refund' => $refund->id,'minor' => (string)$refund->amount->minor,'currency' => $refund->amount->currency]));
             if ($journal !== false) {
-                $operation = json_decode($journal, true, 32, JSON_THROW_ON_ERROR);
+                $operation = $this->decode($journal);
                 if ($operation['fingerprint'] !== $fingerprint) {
                     throw new PaymentError('refund_evidence_invalid', 409);
                 }
                 return true;
             }
             $this->query("INSERT INTO {$this->tables['transactions']} (intent_reference,account_identity,remote_id,kind,minor,currency) VALUES (?,?,?,'refund',?,?) ON CONFLICT(account_identity,remote_id,kind) DO NOTHING", [$intent['reference'],$intent['account_identity'],$refund->id,$refund->amount->minor,$refund->amount->currency]);
-            $movement = $this->query("SELECT intent_reference,minor,currency FROM {$this->tables['transactions']} WHERE account_identity=? AND remote_id=? AND kind='refund'", [$intent['account_identity'],$refund->id])->fetch(PDO::FETCH_ASSOC);
+            $movement = $this->row("SELECT intent_reference,minor,currency FROM {$this->tables['transactions']} WHERE account_identity=? AND remote_id=? AND kind='refund'", [$intent['account_identity'],$refund->id]);
             if ($movement['intent_reference'] !== $intent['reference'] || (string)$movement['minor'] !== (string)$refund->amount->minor || $movement['currency'] !== $refund->amount->currency) {
                 throw new PaymentError('refund_evidence_invalid', 409);
             }
@@ -469,10 +512,11 @@ final class PostgresStore implements PaymentStore
         });
     }
 
+    /** @param array<string, mixed> $intent */
     private function updateRefundBalance(array $intent): void
     {
         // SUM(bigint) is numeric in PostgreSQL. Compare before converting: PHP casts would saturate overflow.
-        $row = $this->query("SELECT SUM(minor) AS total,SUM(minor)>?::bigint AS exceeds FROM {$this->tables['transactions']} WHERE intent_reference=? AND kind='refund'", [$intent['captured_minor'],$intent['reference']])->fetch(PDO::FETCH_ASSOC);
+        $row = $this->row("SELECT SUM(minor) AS total,SUM(minor)>?::bigint AS exceeds FROM {$this->tables['transactions']} WHERE intent_reference=? AND kind='refund'", [$intent['captured_minor'],$intent['reference']]);
         if ($row['exceeds']) {
             throw new PaymentError('refund_balance_mismatch', 409);
         }
@@ -491,7 +535,11 @@ final class PostgresStore implements PaymentStore
         }
     }
 
-    /** Journal, lifecycle ledger and notification commit together. Terminal outcomes cannot regress. */
+    /**
+     * Journal, lifecycle ledger and notification commit together. Terminal outcomes cannot regress.
+     *
+     * @param array<string, mixed> $observed
+     */
     public function recordDispute(array $observed, DisputeEvidence $evidence): bool
     {
         return $this->transaction(function () use ($observed, $evidence): bool {
@@ -519,7 +567,7 @@ final class PostgresStore implements PaymentStore
             $kinds = $evidence->state === 'opened' ? ['dispute_opened'] : ['dispute_opened','dispute_'.$evidence->state];
             foreach ($kinds as $kind) {
                 $this->query("INSERT INTO {$this->tables['transactions']} (intent_reference,account_identity,remote_id,kind,minor,currency) VALUES (?,?,?,?,?,?) ON CONFLICT(account_identity,remote_id,kind) DO NOTHING", [$intent['reference'],$intent['account_identity'],$evidence->id,$kind,$evidence->amount->minor,$evidence->amount->currency]);
-                $row = $this->query("SELECT intent_reference,minor,currency FROM {$this->tables['transactions']} WHERE account_identity=? AND remote_id=? AND kind=?", [$intent['account_identity'],$evidence->id,$kind])->fetch(PDO::FETCH_ASSOC);
+                $row = $this->row("SELECT intent_reference,minor,currency FROM {$this->tables['transactions']} WHERE account_identity=? AND remote_id=? AND kind=?", [$intent['account_identity'],$evidence->id,$kind]);
                 if ($row['intent_reference'] !== $intent['reference'] || (string)$row['minor'] !== (string)$evidence->amount->minor || $row['currency'] !== $evidence->amount->currency) {
                     throw new PaymentError('dispute_evidence_invalid', 409);
                 }
@@ -532,11 +580,11 @@ final class PostgresStore implements PaymentStore
                 $operation['provider_id'] = $evidence->id;
                 $this->saveOperation($operation);
             }
-            $totals = $this->query("SELECT pending::text,lost::text,(pending<0 OR pending+lost>?::bigint) AS invalid FROM (
+            $totals = $this->row("SELECT pending::text,lost::text,(pending<0 OR pending+lost>?::bigint) AS invalid FROM (
                 SELECT COALESCE(SUM(CASE WHEN kind='dispute_opened' THEN minor WHEN kind IN ('dispute_won','dispute_lost') THEN -minor ELSE 0 END),0) AS pending,
                 COALESCE(SUM(minor) FILTER(WHERE kind='dispute_lost'),0) AS lost
                 FROM {$this->tables['transactions']} WHERE intent_reference=?
-            ) balances", [$intent['captured_minor'],$intent['reference']])->fetch(PDO::FETCH_ASSOC);
+            ) balances", [$intent['captured_minor'],$intent['reference']]);
             if ($totals['invalid']) {
                 throw new PaymentError('dispute_balance_mismatch', 409);
             }
@@ -554,6 +602,7 @@ final class PostgresStore implements PaymentStore
         });
     }
 
+    /** @param array<string, string|list<string>> $headers */
     public function receiveWebhook(Account $account, array $headers, string $rawBody): string
     {
         if ($this->db->inTransaction()) {
@@ -572,7 +621,7 @@ final class PostgresStore implements PaymentStore
             throw new PaymentError('invalid_webhook', 422);
         }
         $this->query("INSERT INTO {$this->tables['inbox']} (account_identity,account_alias,event_id,resource_id) VALUES (?,?,?,?) ON CONFLICT(account_identity,event_id) DO NOTHING", [$account->identity(), $account->alias, $event->id, $resource]);
-        $stored = $this->query("SELECT resource_id FROM {$this->tables['inbox']} WHERE account_identity=? AND event_id=?", [$account->identity(), $event->id])->fetch(PDO::FETCH_ASSOC);
+        $stored = $this->row("SELECT resource_id FROM {$this->tables['inbox']} WHERE account_identity=? AND event_id=?", [$account->identity(), $event->id]);
         if ($stored['resource_id'] !== $resource) {
             throw new PaymentError('webhook_identity_conflict', 409);
         }
@@ -582,6 +631,8 @@ final class PostgresStore implements PaymentStore
     /**
      * During a secret rotation the previous secret is tried only after a MISMATCH on the current one
      * and only while its window is open; malformed or stale signatures are never retried.
+     *
+     * @param array<string, string|list<string>> $headers
      */
     private function verifyWebhook(Account $account, array $headers, string $rawBody): WebhookEvent
     {
@@ -599,6 +650,7 @@ final class PostgresStore implements PaymentStore
         throw new InvalidWebhookSignature(InvalidWebhookSignature::NOT_CONFIGURED);
     }
 
+    /** @return array<string, mixed>|null */
     public function claimInbox(int $leaseSeconds = 60): ?array
     {
         if ($leaseSeconds < 1 || $leaseSeconds > 3600) {
@@ -620,13 +672,21 @@ final class PostgresStore implements PaymentStore
         return $this->query("UPDATE {$this->tables['inbox']} SET state=?,lease_token=NULL,leased_until=NULL,next_due=clock_timestamp()+(LEAST(300,5*power(2,attempts-1))*interval '1 second') WHERE id=? AND lease_token=? AND leased_until>clock_timestamp() AND state<>'PROCESSED'", [$success ? 'PROCESSED' : 'FAILED', $id, $token])->rowCount() === 1;
     }
 
+    /**
+     * @param list<mixed> $args
+     * @return array<string, mixed>|null
+     */
     private function one(string $sql, array $args): ?array
     {
         $value = $this->query($sql, $args)->fetchColumn();
-        return $value === false ? null : json_decode($value, true, 32, JSON_THROW_ON_ERROR);
+        return $value === false ? null : $this->decode($value);
     }
 
-    /** Bounded durable queue; failed resources leave the head of the queue immediately. */
+    /**
+     * Bounded durable queue; failed resources leave the head of the queue immediately.
+     *
+     * @return array<string, mixed>|null
+     */
     public function claimReconciliation(int $leaseSeconds = 60): ?array
     {
         if ($leaseSeconds < 1 || $leaseSeconds > 3600) {
@@ -667,7 +727,11 @@ final class PostgresStore implements PaymentStore
         return "(i.data->>'state' NOT IN ('captured','refunded','partially_refunded','canceled','failed') OR EXISTS (SELECT 1 FROM {$this->tables['refunds']} f WHERE f.intent_reference=r.reference AND f.state IN ('SENDING','UNKNOWN','PENDING')))";
     }
 
-    /** Queue anatomy for operator surfaces; identifiers only, never payloads or provider bodies. */
+    /**
+     * Queue anatomy for operator surfaces; identifiers only, never payloads or provider bodies.
+     *
+     * @return array<string, string>
+     */
     private function queueShape(string $queue): array
     {
         return match ($queue) {
@@ -681,6 +745,8 @@ final class PostgresStore implements PaymentStore
     /**
      * Dead-letter view: exhausted items stay in place; nothing is moved or deleted. A backlog can
      * exceed one page, so an operator can also look up the single item a ticket names.
+     *
+     * @return list<array<string, mixed>>
      */
     public function exhaustedItems(string $queue, int $limit = 200, ?string $item = null): array
     {
@@ -693,13 +759,15 @@ final class PostgresStore implements PaymentStore
         }
         $only = $item === null ? '' : "AND {$q['id']}::text=?";
         $rows = $this->query("SELECT {$q['id']}::text AS item,{$q['attempts']} AS attempts,{$q['detail']} AS detail,floor(extract(epoch FROM clock_timestamp()-{$q['due']}))::bigint AS overdue_seconds FROM {$q['source']} WHERE {$q['pending']} AND {$q['attempts']}>=8 {$only} ORDER BY {$q['due']},{$q['id']} LIMIT ?", $item === null ? [$limit] : [$item, $limit])->fetchAll(PDO::FETCH_ASSOC);
-        return array_map(fn (array $row): array => ['queue' => $queue, 'item' => $row['item'], 'attempts' => (int) $row['attempts'], 'detail' => $row['detail'], 'overdueSeconds' => (int) $row['overdue_seconds']], $rows);
+        return array_values(array_map(fn (array $row): array => ['queue' => $queue, 'item' => $row['item'], 'attempts' => (int) $row['attempts'], 'detail' => $row['detail'], 'overdueSeconds' => (int) $row['overdue_seconds']], $rows));
     }
 
     /**
      * Audited manual replay of one exhausted item. It only returns the item to its own retry
      * budget: every queue is read-only towards the provider and product delivery deduplicates by
      * event ID, so a replay can never send money. The audit row and the reset commit together.
+     *
+     * @return array<string, mixed>
      */
     public function replayExhausted(string $queue, string $item, string $actor, string $evidence, string $key): array
     {
@@ -751,12 +819,18 @@ final class PostgresStore implements PaymentStore
             : preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/D', $item) === 1;
     }
 
+    /** @return array<string, mixed>|null */
     private function replayByKey(string $key): ?array
     {
         $row = $this->query("SELECT queue,item,actor,evidence,attempts_before,replayed_at FROM {$this->tables['replays']} WHERE request_key=?", [$key])->fetch(PDO::FETCH_ASSOC);
         return $row ?: null;
     }
 
+    /**
+     * @param array<string, mixed> $existing
+     * @param array<string, string> $decision
+     * @return array<string, mixed>
+     */
     private function sameReplay(array $existing, array $decision): array
     {
         foreach ($decision as $field => $value) {
@@ -767,7 +841,11 @@ final class PostgresStore implements PaymentStore
         return ['replayed' => false] + $decision + ['attemptsBefore' => (int) $existing['attempts_before'], 'recordedAt' => $existing['replayed_at']];
     }
 
-    /** Aggregate gauges only. A stalled item is due, retryable and unclaimed past the threshold. */
+    /**
+     * Aggregate gauges only. A stalled item is due, retryable and unclaimed past the threshold.
+     *
+     * @return array<string, array<string, int>|int|null>
+     */
     public function metrics(int $staleSeconds = 900): array
     {
         if ($staleSeconds < 60 || $staleSeconds > 86400) {
@@ -776,17 +854,21 @@ final class PostgresStore implements PaymentStore
         $metrics = [];
         foreach (['inbox', 'outbox', 'intents'] as $queue) {
             $q = $this->queueShape($queue);
-            $row = $this->query("SELECT count(*) AS pending,count(*) FILTER(WHERE {$q['attempts']}>=8) AS exhausted,
+            $row = $this->row("SELECT count(*) AS pending,count(*) FILTER(WHERE {$q['attempts']}>=8) AS exhausted,
                 count(*) FILTER(WHERE {$q['attempts']}<8 AND {$q['due']}<clock_timestamp()-(? * interval '1 second') AND ({$q['lease']} IS NULL OR {$q['lease']}<=clock_timestamp())) AS stalled,
                 COALESCE(floor(extract(epoch FROM clock_timestamp()-min({$q['due']}) FILTER(WHERE {$q['attempts']}<8)))::bigint,0) AS oldest_due_seconds
-                FROM {$q['source']} WHERE {$q['pending']}", [$staleSeconds])->fetch(PDO::FETCH_ASSOC);
+                FROM {$q['source']} WHERE {$q['pending']}", [$staleSeconds]);
             $metrics[$queue] = ['pending' => (int) $row['pending'], 'exhausted' => (int) $row['exhausted'], 'stalled' => (int) $row['stalled'], 'oldestDueSeconds' => max(0, (int) $row['oldest_due_seconds'])];
         }
         $metrics['replays'] = isset($this->tables['replays']) ? (int) $this->query("SELECT count(*) FROM {$this->tables['replays']}", [])->fetchColumn() : null;
         return $metrics;
     }
 
-    /** Actionable conditions; each names the operator step, never a customer or provider body. */
+    /**
+     * Actionable conditions; each names the operator step, never a customer or provider body.
+     *
+     * @return list<array<string, mixed>>
+     */
     public function alerts(int $staleSeconds = 900): array
     {
         $alerts = [];
@@ -804,7 +886,11 @@ final class PostgresStore implements PaymentStore
         return $alerts;
     }
 
-    /** Aggregate counters only; no provider bodies, credentials or personal data. */
+    /**
+     * Aggregate counters only; no provider bodies, credentials or personal data.
+     *
+     * @return array<string, array<string, int>>
+     */
     public function queueStatus(): array
     {
         $status = [];
@@ -814,12 +900,40 @@ final class PostgresStore implements PaymentStore
             };
             $attempts = $queue === 'intents' ? 'reconcile_attempts' : 'attempts';
             $source = $queue === 'intents' ? "{$this->tables['reconciliation']} r JOIN {$this->tables['intents']} i USING(reference)" : $this->tables[$queue];
-            $row = $this->query("SELECT count(*) AS pending,count(*) FILTER(WHERE {$attempts}>=8) AS exhausted FROM {$source} WHERE {$pending}", [])->fetch(PDO::FETCH_ASSOC);
+            $row = $this->row("SELECT count(*) AS pending,count(*) FILTER(WHERE {$attempts}>=8) AS exhausted FROM {$source} WHERE {$pending}", []);
             $status[$queue] = ['pending' => (int)$row['pending'], 'exhausted' => (int)$row['exhausted']];
         }
         return $status;
     }
 
+    /**
+     * A row the statement must produce: the select after an upsert, an aggregate, a row just written.
+     *
+     * @param list<mixed> $args
+     * @return array<string, mixed>
+     */
+    private function row(string $sql, array $args): array
+    {
+        return $this->query($sql, $args)->fetch(PDO::FETCH_ASSOC) ?: throw new PaymentError('missing_row', 503);
+    }
+
+    /**
+     * @param list<mixed> $args
+     * @return list<string>
+     */
+    private function strings(string $sql, array $args): array
+    {
+        return array_map(static fn (mixed $value): string => is_string($value) ? $value : throw new PaymentError('invalid_row', 503), array_values($this->query($sql, $args)->fetchAll(PDO::FETCH_COLUMN)));
+    }
+
+    /** @return array<string, mixed> */
+    private function decode(mixed $json): array
+    {
+        $data = is_string($json) ? json_decode($json, true, 32, JSON_THROW_ON_ERROR) : null;
+        return is_array($data) ? $data : throw new PaymentError('invalid_row', 503);
+    }
+
+    /** @param list<mixed> $args */
     private function query(string $sql, array $args): \PDOStatement
     {
         $statement = $this->db->prepare($sql);

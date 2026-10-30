@@ -6,11 +6,16 @@ namespace Ronu\PaymentGateways\Orchestration;
 
 final class CanonicalJson
 {
+    /** @param array<mixed> $data */
     public static function encode(array $data): string
     {
         return json_encode(self::normalize($data), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
 
+    /**
+     * @param array<mixed> $data
+     * @return array<mixed>
+     */
     private static function normalize(array $data, int $depth = 0): array
     {
         if ($depth > 12 || count($data) > 256) {

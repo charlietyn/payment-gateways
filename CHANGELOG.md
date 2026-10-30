@@ -10,6 +10,20 @@ romper la API, y aquí se dice cómo.
 
 - Pint gatea `src/Orchestration` y `tests/Orchestration` (`composer format:check`, también en CI); el CI
   carga `pdo_pgsql`. README: comando de la suite de PostgreSQL.
+- PHPStan nivel 8 sin baseline en toda la biblioteca: se borra `phpstan-baseline.neon` y
+  `src/Orchestration` declara los tipos de sus arrays (filas `array<string, mixed>`, listas, formas).
+
+### Corregido
+
+- Orquestación: una fila que debía existir y no existe ahora lanza `PaymentError` en vez de un aviso
+  o un `TypeError` de PHP. Un intent o una operación que falta da `not_found` (404). La fila que sigue
+  a un upsert o un agregado que falta da `missing_row` (503), y un JSON o una columna que no son lo
+  esperado dan `invalid_row` (503).
+- `Coordinator::apply()` comprueba dentro de la transacción que un pago `Captured` trae importe y
+  transacción (`capture_evidence_missing`), en lugar de suponerlo.
+- Puente Laravel: el webhook descarta las cabeceras con valor nulo antes de verificar la firma;
+  `payments:run` trata como vacía una opción que no es texto; el proveedor lee la config con
+  `$app->make('config')`.
 
 ## [0.3.0-alpha.1] — 2026-10-29 (candidato local, sin publicar)
 

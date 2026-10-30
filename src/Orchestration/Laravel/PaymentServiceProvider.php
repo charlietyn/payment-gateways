@@ -19,7 +19,7 @@ class PaymentServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->commands([PaymentCommand::class]);
             $this->callAfterResolving(Schedule::class, function (Schedule $schedule): void {
-                if ($this->app['config']->get('payments.recovery_enabled', false)) {
+                if ($this->app->make('config')->get('payments.recovery_enabled', false)) {
                     $schedule->command('payments:run work --limit=200')->everyMinute();
                 }
             });

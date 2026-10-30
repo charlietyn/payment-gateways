@@ -32,14 +32,14 @@ final class PaymentCommand extends Command
             $result = match ($this->argument('action')) {
                 'status' => $runtime->store()->queueStatus(),
                 'work' => $this->work($runtime, $limit),
-                'observe-dispute' => ['observed' => $runtime->disputes()->observe((string) $this->option('reference'), (string) $this->option('case'))],
-                'observe-refund' => ['observed' => $runtime->externalRefunds()->observe((string) $this->option('reference'), (string) $this->option('case'))],
-                'recover-refund' => ['recovered' => $runtime->refunds()->recoverReviewed((string) $this->option('reference'), (string) $this->option('case'), (string) $this->option('actor'), (string) $this->option('evidence'))],
+                'observe-dispute' => ['observed' => $runtime->disputes()->observe($this->text('reference'), $this->text('case'))],
+                'observe-refund' => ['observed' => $runtime->externalRefunds()->observe($this->text('reference'), $this->text('case'))],
+                'recover-refund' => ['recovered' => $runtime->refunds()->recoverReviewed($this->text('reference'), $this->text('case'), $this->text('actor'), $this->text('evidence'))],
                 'compensation-status' => $this->compensationStatus($runtime),
-                'exhausted' => ['items' => $runtime->store()->exhaustedItems((string) $this->option('queue'), $limit, $this->option('reference') === null ? null : (string) $this->option('reference'))],
-                'replay-exhausted' => $runtime->store()->replayExhausted((string) $this->option('queue'), (string) $this->option('reference'), (string) $this->option('actor'), (string) $this->option('evidence'), (string) $this->option('key')),
+                'exhausted' => ['items' => $runtime->store()->exhaustedItems($this->text('queue'), $limit, $this->option('reference') === null ? null : $this->text('reference'))],
+                'replay-exhausted' => $runtime->store()->replayExhausted($this->text('queue'), $this->text('reference'), $this->text('actor'), $this->text('evidence'), $this->text('key')),
                 'metrics' => $runtime->store()->metrics($stale),
-                'acknowledge-compensation' => $runtime->compensations()->acknowledge((string) $this->option('reference'), (string) $this->option('actor'), (string) $this->option('evidence'), (string) $this->option('key')),
+                'acknowledge-compensation' => $runtime->compensations()->acknowledge($this->text('reference'), $this->text('actor'), $this->text('evidence'), $this->text('key')),
                 default => throw new PaymentError('invalid_action', 422),
             };
             $this->line(json_encode($result, JSON_THROW_ON_ERROR));
@@ -52,12 +52,21 @@ final class PaymentCommand extends Command
         return self::FAILURE;
     }
 
+    /** Options arrive as string|null; anything else counts as absent. */
+    private function text(string $option): string
+    {
+        $value = $this->option($option);
+        return is_string($value) ? $value : '';
+    }
+
+    /** @return array<string, mixed> */
     private function compensationStatus(PaymentRuntime $runtime): array
     {
-        $intent = $runtime->store()->intent((string) $this->option('reference')) ?? throw new PaymentError('not_found', 404);
+        $intent = $runtime->store()->intent($this->text('reference')) ?? throw new PaymentError('not_found', 404);
         return ['reference' => $intent['reference'], 'financialState' => $intent['state'], 'fulfillmentState' => $intent['fulfillment'], 'compensationState' => $intent['compensation'] ?? 'not_requested', 'acknowledgement' => $intent['compensation_ack'] ?? null, 'acknowledgedAt' => $intent['compensation_acknowledged_at'] ?? null];
     }
 
+    /** @return array<string, array<string, int>> */
     private function work(PaymentRuntime $runtime, int $limit): array
     {
         $worker = $runtime->worker();
