@@ -39,7 +39,7 @@ Leyenda: ☐ pendiente · ◐ en curso · ☑ hecho.
 | M8 | Página del proveedor: `Contracts\HostedCheckout` — Checkout Pro, Checkout Session, aprobación PayPal | Unitarios + recorrido en el emulador | ☑ — falta probarlo en sandbox (M10) |
 | M9 | Kit de conformidad `Testing\GatewayConformanceTestCase` para drivers nuevos; `Testing\FakeMercadoPago` | Los tres drivers lo pasan | ☑ — en el emulador; en CI contra el fake |
 | M10 | E2E en sandbox real (Stripe test, PayPal sandbox, usuarios de prueba MP) | Informe de diferencias emulador ↔ real | ☐ necesita credenciales |
-| M11 | Packagist, semver, guía "añadir una pasarela", L7 (`eros/payments`) | `v1.0.0` publicada | ◐ — `v0.2.0`, CHANGELOG y guía hechos; falta Packagist (lo envía el dueño), M10 y L7 antes de `v1.0.0` |
+| M11 | Packagist, semver, guía "añadir una pasarela" | `v1.0.0` publicada | ◐ — `v0.2.0`, CHANGELOG y guía hechos; falta Packagist (lo envía el dueño) y M10 antes de `v1.0.0` |
 
 Mejoras propuestas al emulador (otro repositorio, no bloquean): Preferences en
 Plaza y Checkout Sessions en Vector (para probar M8 en local), `amount_refunded`

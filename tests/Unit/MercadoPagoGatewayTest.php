@@ -71,7 +71,7 @@ final class MercadoPagoGatewayTest extends TestCase
     {
         return array_replace_recursive([
             'id' => 'ORD01ABC', 'status' => 'action_required', 'status_detail' => 'waiting_payment',
-            'total_amount' => '180000.00', 'currency_id' => 'ARS', 'external_reference' => 'EROS-1',
+            'total_amount' => '180000.00', 'currency_id' => 'ARS', 'external_reference' => 'ORDER-1',
             'transactions' => ['payments' => [['id' => 'PAY01', 'amount' => '180000.00', 'payment_method' => ['id' => 'pagofacil', 'type' => 'ticket', 'token' => 'secret-token']]]],
         ], $overrides);
     }
@@ -90,7 +90,7 @@ final class MercadoPagoGatewayTest extends TestCase
     {
         $http = new MockHttp([MockHttp::json(201, $this->order())]);
         $payment = $this->gateway($http)->createPayment(new CreatePayment(
-            Money::fromDecimal('180000', 'ARS'), 'EROS-1', 'idem-1', 'Eros · bash',
+            Money::fromDecimal('180000', 'ARS'), 'ORDER-1', 'idem-1', 'Order · bash',
             payer: Payer::fromFullName('Ana Pérez Gómez', 'ana@example.test', '30111222'),
         ));
 
@@ -102,7 +102,7 @@ final class MercadoPagoGatewayTest extends TestCase
         $body = $http->jsonBody(0);
         $this->assertSame('180000.00', $body['total_amount']);
         $this->assertSame('180000.00', $body['transactions']['payments'][0]['amount']);
-        $this->assertSame('EROS-1', $body['external_reference']);
+        $this->assertSame('ORDER-1', $body['external_reference']);
         $this->assertSame(['type' => 'DNI', 'number' => '30111222'], $body['payer']['identification']);
         $this->assertSame('Pérez Gómez', $body['payer']['last_name']);
 
@@ -110,7 +110,7 @@ final class MercadoPagoGatewayTest extends TestCase
         $this->assertSame('http://checkout.test/plaza/checkout/ORD01ABC', $payment->nextAction?->url);
         $this->assertFalse($payment->nextAction->returnsToMerchant);
         $this->assertSame('PAY01', $payment->transactionId);
-        $this->assertTrue($payment->matches('EROS-1', Money::of(18_000_000, 'ARS')));
+        $this->assertTrue($payment->matches('ORDER-1', Money::of(18_000_000, 'ARS')));
         $this->assertArrayNotHasKey('token', $payment->raw['transactions']['payments'][0]['payment_method']);
     }
 

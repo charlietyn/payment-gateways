@@ -10,8 +10,6 @@ a la API real cambiando solo la configuración.
 | `stripe` | Stripe | **Vector** | PaymentIntents + Refunds (`/v1/payment_intents`, `/v1/refunds`) |
 | `paypal` | PayPal | **Harbor** | OAuth + Orders v2 + Payments v2 |
 
-Primer consumidor: `eros/payments`,
-cuyo adaptador Orders se reemplaza por el driver `mercadopago` de aquí.
 
 ## 1. Principios
 
@@ -66,7 +64,6 @@ Leyenda: ☐ pendiente · ☑ hecho.
 | L4 | Driver `paypal` (Orders v2): OAuth con caché, approve→capture/authorize, refunds sobre la captura, webhooks RSA-SHA256 + CRC32 con certificado de host permitido, preset `harbor` | idem | ☑ |
 | L5 | `GatewayFactory` + presets + puente Laravel (`PaymentGatewaysManager`, config publicable) | Test del manager | ☑ |
 | L6 | Suite de integración contra el emulador (crea una app por proveedor con el token de operador) | Los tres flujos completos en verde contra un emulador real | ☑ |
-| L7 | `eros/payments` usa el driver `mercadopago` de la biblioteca | Sus 32 tests siguen en verde y el recorrido real con Plaza también | ⊘ pendiente de decidir dónde se aloja la biblioteca (Git/Packagist); ver §6 |
 | L8 | README con guía por proveedor y tabla de fidelidad/limitaciones | Revisado | ☑ |
 
 ## 4. Limitaciones conocidas (se documentan, no se esconden)
@@ -89,15 +86,3 @@ Leyenda: ☐ pendiente · ☑ hecho.
 | 2026-10-21 | L0–L5 | `composer test` → **42 tests, 155 aserciones OK**; `composer analyse` (PHPStan nivel 8) sin errores |
 | 2026-10-21 | L6 | `composer test:integration` contra un emulador real (API :8090, worker con outbound): **4 tests, 31 aserciones OK** — Plaza (idempotencia, conflicto 409, pago, devolución parcial/total, webhooks HMAC verificados), Vector (requires_action → pago → devolución, webhooks `stripe-signature` verificados), Harbor (OAuth, aprobación, `capture()`, devolución, webhook RSA verificado con el certificado descargado), rechazo |
 | 2026-10-21 | Hallazgo | El emulador solo programa webhooks para la creación y la confirmación en el checkout; capture/refund lanzados por el comercio no notifican con el escenario por defecto. Harbor tampoco incluye `supplementary_data` en el recurso: el driver resuelve la orden por el enlace `rel=up` |
-
-## 6. L7 — conectar `eros/payments` (pasos, pendientes de alojamiento)
-
-1. Publicar este repositorio (Git privado o Packagist) y añadirlo como repositorio
-   `vcs` en el `composer.json` de eros (registrar el cambio upstream con
-   `dbig manifest:config`, igual que `eros/payments`).
-2. `composer require ronu/payment-gateways`.
-3. En `packages/payments`, sustituir el cuerpo de `MercadoPagoOrdersGateway` por
-   una envoltura de `GatewayFactory::make(config('payments.gateway'), …)`:
-   `createOrder` → `createPayment`, `findOrder` → `getPayment`, `refundOrder` → `refund`,
-   `checkoutSession` → `Payment::$nextAction`, y `SignatureVerifier` → `parseWebhook`.
-4. Criterio de hecho: los 32 tests de `packages/payments` y el recorrido real con Plaza siguen en verde.
