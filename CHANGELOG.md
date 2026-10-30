@@ -6,6 +6,10 @@ romper la API, y aquí se dice cómo.
 
 ## [Sin publicar]
 
+## [0.3.0-alpha.2] — 2026-10-30
+
+Primera 0.3 publicada: incluye todo lo de `0.3.0-alpha.1` más lo de abajo.
+
 ### Cambiado
 
 - Pint gatea `src/Orchestration` y `tests/Orchestration` (`composer format:check`, también en CI); el CI
@@ -25,7 +29,7 @@ romper la API, y aquí se dice cómo.
   `payments:run` trata como vacía una opción que no es texto; el proveedor lee la config con
   `$app->make('config')`.
 
-## [0.3.0-alpha.1] — 2026-10-29 (candidato local, sin publicar)
+## [0.3.0-alpha.1] — 2026-10-29 (candidato local, nunca publicado)
 
 Artefacto `ronu-payment-gateways-0.3.0-alpha.1.zip`, sha256
 `e8251abc95bb8d9903850bd86710a745f259895445d7c452d22fe8b6f0633696`. Su contenido está congelado: cualquier
@@ -102,5 +106,6 @@ Primera versión etiquetada.
   OpenAPI. Aún no contra los sandbox (necesita credenciales de prueba).
 - En el emulador, cancelar un pago capturado en Plaza o Vector responde 500.
 
-[Sin publicar]: https://github.com/charlietyn/payment-gateways/compare/v0.2.0...HEAD
+[Sin publicar]: https://github.com/charlietyn/payment-gateways/compare/v0.3.0-alpha.2...HEAD
+[0.3.0-alpha.2]: https://github.com/charlietyn/payment-gateways/compare/v0.2.0...v0.3.0-alpha.2
 [0.2.0]: https://github.com/charlietyn/payment-gateways/releases/tag/v0.2.0
