@@ -61,6 +61,21 @@ final class CheckoutProOrchestrationTest extends TestCase
         $this->assertSame(substr($preference, 5), ProviderView::refundTarget($account, $preference));
     }
 
+    public function test_a_refund_targets_the_payment_and_reports_the_intent_identity(): void
+    {
+        $account = $this->account();
+        $amount = Money::fromDecimal('120.00', 'ARS');
+        $preference = ProviderView::create($account, new CreatePayment($amount, 'ref-5', 'key-5'))->id;
+        $this->fake->pay($preference);
+
+        $refund = ProviderView::refund($account, $preference, Money::fromDecimal('20.00', 'ARS'), 'refund-5');
+
+        $this->assertSame($preference, $refund->paymentId);
+        $this->assertSame(2000, $refund->amount->minor);
+        $this->assertSame($preference, $refund->payment?->id);
+        $this->assertSame(substr($preference, 5), $refund->payment?->transactionId);
+    }
+
     public function test_a_declined_attempt_is_a_failed_payment(): void
     {
         $account = $this->account();

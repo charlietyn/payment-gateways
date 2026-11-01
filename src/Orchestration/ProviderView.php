@@ -11,6 +11,7 @@ use Ronu\PaymentGateways\Money;
 use Ronu\PaymentGateways\NextAction;
 use Ronu\PaymentGateways\Payment;
 use Ronu\PaymentGateways\PaymentStatus;
+use Ronu\PaymentGateways\Refund;
 
 /**
  * The one place that knows an account's API family changes what its provider id names.
@@ -63,6 +64,32 @@ final class ProviderView
     public static function paymentForEvent(Account $account, string $resourceId): ?Payment
     {
         return $account->gateway->getPayment($resourceId);
+    }
+
+    /** Refunds the payment behind an intent's provider id; the evidence carries the intent's identity. */
+    public static function refund(Account $account, string $providerId, ?Money $amount, string $idempotencyKey): Refund
+    {
+        $refund = $account->gateway->refund(self::refundTarget($account, $providerId), $amount, $idempotencyKey);
+        return self::asIntentRefund($account, $refund, $providerId);
+    }
+
+    /**
+     * A refund read back from the provider, re-labelled with the intent's provider id: the store checks
+     * that a refund belongs to the payment it recorded, and for Checkout Pro that is the preference.
+     */
+    public static function asIntentRefund(Account $account, Refund $refund, string $providerId): Refund
+    {
+        if ($account->apiFamily !== 'checkout_pro') {
+            return $refund;
+        }
+        return new Refund(
+            id: $refund->id,
+            amount: $refund->amount,
+            status: $refund->status,
+            paymentId: $providerId,
+            payment: $refund->payment === null ? null : self::asIntentIdentity($refund->payment, $providerId),
+            raw: $refund->raw,
+        );
     }
 
     /** The provider id a refund targets: the payment, which for Checkout Pro is not the preference. */

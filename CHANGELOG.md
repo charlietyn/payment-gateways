@@ -6,6 +6,15 @@ romper la API, y aquí se dice cómo.
 
 ## [Sin publicar]
 
+## [0.6.0-alpha.2] — 2026-11-01 (candidato local, nunca publicado)
+
+### Corregido
+
+- Reembolsos de Checkout Pro: la evidencia (`ProviderView::refund()` y `GatewayRefundEvidenceReader`) se
+  reetiqueta con el `provider_id` del intent (la preferencia), porque el almacén comprueba que el reembolso
+  pertenece al pago que registró. Con 0.6.0-alpha.1 el reembolso se enviaba bien al proveedor y quedaba
+  `UNKNOWN` en local (evidencia del gate `h17-checkoutpro-invoices-001`).
+
 ## [0.6.0-alpha.1] — 2026-11-01 (candidato local, nunca publicado)
 
 ### Añadido

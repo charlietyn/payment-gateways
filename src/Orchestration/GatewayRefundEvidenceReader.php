@@ -20,6 +20,7 @@ final class GatewayRefundEvidenceReader implements RefundEvidenceReader
             throw new PaymentError('refund_lookup_unsupported', 503);
         }
         // Checkout Pro: the intent names the preference; its refunds live on the payment.
-        return $account->gateway->getRefund(ProviderView::refundTarget($account, $paymentId), $refundId);
+        $refund = $account->gateway->getRefund(ProviderView::refundTarget($account, $paymentId), $refundId);
+        return $refund === null ? null : ProviderView::asIntentRefund($account, $refund, $paymentId);
     }
 }
