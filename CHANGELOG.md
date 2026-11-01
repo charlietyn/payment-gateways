@@ -6,6 +6,16 @@ romper la API, y aquí se dice cómo.
 
 ## [Sin publicar]
 
+## [0.5.0-alpha.2] — 2026-11-01 (candidato local, nunca publicado)
+
+### Añadido
+
+- `RecoveryWorker::reconcile` captura las órdenes PayPal aprobadas por el comprador (Orders v2 no mueve dinero
+  al aprobar). La clave `capture-v1-<referencia>` es determinista: si se pierde la respuesta, la siguiente
+  pasada relee la orden y repite con el mismo `PayPal-Request-Id`, que el proveedor resuelve devolviendo la
+  captura original; nunca hay una segunda captura. El drenaje no la detiene porque completa una venta ya
+  aprobada.
+
 ## [0.5.0-alpha.1] — 2026-11-01 (candidato local, nunca publicado)
 
 Incluye todo lo de `0.4.0-alpha.1` más cuentas Stripe y PayPal en la orquestación.

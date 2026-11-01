@@ -183,6 +183,20 @@ final class RecoveryWorker
                 if ($operation === null || !$this->coordinator->apply($intent, $payment, $account, $operation['reference'])) {
                     throw new PaymentError('concurrent_observation', 409);
                 }
+                // PayPal Orders v2: the buyer's approval moves no money; the merchant captures. The key
+                // is deterministic per payment, so a capture whose response was lost is repeated with the
+                // SAME PayPal-Request-Id on the next pass and the provider returns the original capture:
+                // re-read first, never a second capture. Drain does not stop it: it completes a sale the
+                // buyer already approved, it does not start a new one.
+                if ($payment->status === \Ronu\PaymentGateways\PaymentStatus::Approved && $account->gateway->name() === 'paypal') {
+                    $this->store->assertProviderIoAllowed();
+                    $captured = $account->gateway->capture($intent['provider_id'], null, 'capture-v1-'.$intent['reference']);
+                    $fresh = $this->store->intent($intent['reference']) ?? throw new PaymentError('not_found', 404);
+                    $captureOperation = $this->store->createOperationFor($intent['reference']);
+                    if ($captureOperation === null || !$this->coordinator->apply($fresh, $captured, $account, $captureOperation['reference'])) {
+                        throw new PaymentError('concurrent_observation', 409);
+                    }
+                }
                 if (!$refundsResolved) {
                     throw new PaymentError('refund_recovery_pending', 503);
                 }
