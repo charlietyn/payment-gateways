@@ -37,7 +37,11 @@ final class ConfiguredAccounts implements AccountResolver
     public function account(string $alias): Account
     {
         $config = $this->configuration['accounts'][$alias] ?? throw new PaymentError('unknown_account', 404);
-        foreach (['access_token', 'webhook_secret', 'api_url', 'checkout_url'] as $key) {
+        $driver = $config['driver'] ?? 'mercadopago';
+        if (!isset(self::PRESETS[$driver])) {
+            throw new PaymentError('unsupported_account', 503);
+        }
+        foreach (['access_token', 'webhook_secret', 'api_url', 'checkout_url', ...($driver === 'paypal' ? ['client_id'] : [])] as $key) {
             if (!is_string($config[$key] ?? null) || trim($config[$key]) === '') {
                 throw new PaymentError('account_not_ready', 503);
             }
@@ -50,21 +54,16 @@ final class ConfiguredAccounts implements AccountResolver
                 throw new PaymentError('unsafe_emulator_endpoint', 503);
             }
         }
-        $gateway = GatewayFactory::make('plaza', [
-            'credentials' => ['access_token' => $config['access_token']],
-            'webhooks' => ['secret' => $config['webhook_secret'], 'tolerance_seconds' => 600],
-            // The preset pins a per-request scenario override. An application never sends one: the
-            // behaviour belongs to the emulator application the operator configured, so that a fault
-            // scenario bound there is what this account actually meets.
-            'emulator' => ['api_url' => rtrim($config['api_url'], '/'), 'checkout_url' => rtrim($config['checkout_url'], '/'), 'scenario' => ''],
-            'http' => ['timeout' => 10, 'connect_timeout' => 3, 'retries' => 0],
-        ]);
-        [$previousGateway, $previousUntil] = $this->previousWebhookSecret($config);
+        // The preset pins a per-request scenario override. An application never sends one: the
+        // behaviour belongs to the emulator application the operator configured, so that a fault
+        // scenario bound there is what this account actually meets.
+        $gateway = $this->gateway($driver, $config, $config['webhook_secret']);
+        [$previousGateway, $previousUntil] = $this->previousWebhookSecret($config, $driver);
         return new Account(
             $alias,
             $config['merchant_id'],
             'emulator',
-            'ARS',
+            (string) ($config['currency'] ?? 'ARS'),
             $config['configuration_version'],
             $gateway,
             [rtrim($config['checkout_url'], '/')],
@@ -72,6 +71,27 @@ final class ConfiguredAccounts implements AccountResolver
             $previousGateway,
             $previousUntil
         );
+    }
+
+    /** Emulator preset per driver: Plaza (Mercado Pago), Vector (Stripe), Harbor (PayPal). */
+    private const PRESETS = ['mercadopago' => 'plaza', 'stripe' => 'vector', 'paypal' => 'harbor'];
+
+    /** @param array<string, mixed> $config */
+    private function gateway(string $driver, array $config, string $webhookSecret): \Ronu\PaymentGateways\Contracts\Gateway
+    {
+        $credentials = match ($driver) {
+            'stripe' => ['secret_key' => $config['access_token']],
+            'paypal' => ['client_id' => $config['client_id'], 'client_secret' => $config['access_token']],
+            default => ['access_token' => $config['access_token']],
+        };
+        // PayPal does not sign with a shared secret: Harbor verifies against the app's webhook id.
+        $webhooks = $driver === 'paypal' ? ['id' => $webhookSecret] : ['secret' => $webhookSecret, 'tolerance_seconds' => 600];
+        return GatewayFactory::make(self::PRESETS[$driver], [
+            'credentials' => $credentials,
+            'webhooks' => $webhooks,
+            'emulator' => ['api_url' => rtrim($config['api_url'], '/'), 'checkout_url' => rtrim($config['checkout_url'], '/'), 'scenario' => ''],
+            'http' => ['timeout' => 10, 'connect_timeout' => 3, 'retries' => 0],
+        ]);
     }
 
     /**
@@ -83,7 +103,7 @@ final class ConfiguredAccounts implements AccountResolver
      * @param array<string, mixed> $config
      * @return array{0: ?\Ronu\PaymentGateways\Contracts\Gateway, 1: ?int}
      */
-    private function previousWebhookSecret(array $config): array
+    private function previousWebhookSecret(array $config, string $driver = 'mercadopago'): array
     {
         $secret = trim((string) ($config['webhook_secret_previous'] ?? ''));
         if ($secret === '') {
@@ -93,11 +113,6 @@ final class ConfiguredAccounts implements AccountResolver
         if ($until === false || $secret === $config['webhook_secret'] || $until - time() > self::MAX_ROTATION_SECONDS) {
             throw new PaymentError('invalid_webhook_rotation', 503);
         }
-        return [GatewayFactory::make('plaza', [
-            'credentials' => ['access_token' => $config['access_token']],
-            'webhooks' => ['secret' => $secret, 'tolerance_seconds' => 600],
-            'emulator' => ['api_url' => rtrim($config['api_url'], '/'), 'checkout_url' => rtrim($config['checkout_url'], '/'), 'scenario' => ''],
-            'http' => ['timeout' => 10, 'connect_timeout' => 3, 'retries' => 0],
-        ]), $until];
+        return [$this->gateway($driver, $config, $secret), $until];
     }
 }

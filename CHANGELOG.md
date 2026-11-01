@@ -6,6 +6,23 @@ romper la API, y aquí se dice cómo.
 
 ## [Sin publicar]
 
+## [0.5.0-alpha.1] — 2026-11-01 (candidato local, nunca publicado)
+
+Incluye todo lo de `0.4.0-alpha.1` más cuentas Stripe y PayPal en la orquestación.
+
+### Añadido
+
+- `ConfiguredAccounts`: la clave `driver` de cada cuenta (`mercadopago` por defecto, `stripe`, `paypal`) elige
+  el preset del emulador (Plaza, Vector, Harbor) y las credenciales que espera cada driver; `currency` por
+  cuenta (por defecto `ARS`). PayPal exige `client_id` y verifica webhooks con el id de webhook de Harbor.
+- `Account::CURRENCIES`: Mercado Pago ARS; Stripe ARS, USD y EUR; PayPal USD y EUR. Solo emulador y solo
+  monedas de dos decimales que el emulador admite.
+
+### Cambiado
+
+- La identidad de cuenta incluye la familia de API del proveedor (`payment_intents`, `orders_v2`); Mercado
+  Pago conserva `orders`, de modo que ninguna identidad existente cambia.
+
 ## [0.4.0-alpha.1] — 2026-11-01 (candidato local, nunca publicado)
 
 Incluye todo lo de `0.3.0-alpha.2` más devoluciones operativas.

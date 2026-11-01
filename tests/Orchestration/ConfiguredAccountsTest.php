@@ -179,4 +179,40 @@ final class ConfiguredAccountsTest extends TestCase
         $config['accounts']['a'] += ['webhook_secret_previous' => 'old-secret', 'webhook_secret_previous_until' => gmdate('c', time() - 60)];
         self::assertCount(1, (new ConfiguredAccounts($config))->account('a')->webhookVerifiers(time()));
     }
+
+    public function test_mercado_pago_identity_is_unchanged_by_the_provider_selection(): void
+    {
+        $account = (new ConfiguredAccounts($this->configuration()))->account('a');
+        self::assertSame('mercadopago', $account->gateway->name());
+        self::assertSame('ARS', $account->currency);
+        self::assertSame(hash('sha256', json_encode(['a', 'mercadopago', 'orders', 'merchant-a', 'emulator', 'ARS'], JSON_THROW_ON_ERROR)), $account->identity());
+    }
+
+    public function test_stripe_and_paypal_accounts_build_on_vector_and_harbor_with_their_own_identity(): void
+    {
+        $configuration = $this->configuration();
+        $configuration['accounts']['s'] = ['driver' => 'stripe', 'currency' => 'USD'] + $configuration['accounts']['a'];
+        $configuration['accounts']['p'] = ['driver' => 'paypal', 'currency' => 'USD', 'client_id' => 'client-p'] + $configuration['accounts']['b'];
+        $accounts = new ConfiguredAccounts($configuration);
+        $stripe = $accounts->account('s');
+        $paypal = $accounts->account('p');
+        self::assertSame(['stripe', 'USD'], [$stripe->gateway->name(), $stripe->currency]);
+        self::assertSame(['paypal', 'USD'], [$paypal->gateway->name(), $paypal->currency]);
+        self::assertSame(hash('sha256', json_encode(['s', 'stripe', 'payment_intents', 'merchant-a', 'emulator', 'USD'], JSON_THROW_ON_ERROR)), $stripe->identity());
+        self::assertNotSame($accounts->account('a')->identity(), $stripe->identity());
+    }
+
+    public function test_an_undeclared_provider_currency_or_missing_paypal_client_is_not_an_account(): void
+    {
+        $configuration = $this->configuration();
+        $configuration['accounts']['jpy'] = ['driver' => 'stripe', 'currency' => 'JPY'] + $configuration['accounts']['a'];
+        $configuration['accounts']['ars'] = ['driver' => 'paypal', 'currency' => 'ARS', 'client_id' => 'c'] + $configuration['accounts']['a'];
+        $configuration['accounts']['noclient'] = ['driver' => 'paypal', 'currency' => 'USD'] + $configuration['accounts']['a'];
+        $configuration['accounts']['adyen'] = ['driver' => 'adyen'] + $configuration['accounts']['a'];
+        $accounts = new ConfiguredAccounts($configuration);
+        self::assertSame('unsupported_account', $this->code(fn () => $accounts->account('jpy')));
+        self::assertSame('unsupported_account', $this->code(fn () => $accounts->account('ars')));
+        self::assertSame('account_not_ready', $this->code(fn () => $accounts->account('noclient')));
+        self::assertSame('unsupported_account', $this->code(fn () => $accounts->account('adyen')));
+    }
 }
