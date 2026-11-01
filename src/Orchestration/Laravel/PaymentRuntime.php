@@ -70,7 +70,8 @@ final class PaymentRuntime
     }
     public function refunds(): RefundCoordinator
     {
-        return new RefundCoordinator($this->store(), $this->accounts(), new GatewayRefundEvidenceReader(), false);
+        // New refund writes need an explicit consumer decision; reads and recovery never do.
+        return new RefundCoordinator($this->store(), $this->accounts(), new GatewayRefundEvidenceReader(), ($this->configuration['refunds_enabled'] ?? false) === true);
     }
     public function compensations(): \Ronu\PaymentGateways\Orchestration\CompensationCoordinator
     {

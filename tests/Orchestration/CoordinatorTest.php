@@ -811,6 +811,31 @@ final class CoordinatorTest extends TestCase
         self::assertSame('completed', $this->store->intent($payment['reference'])['compensation']);
     }
 
+    public function test_confirmed_operational_refund_emits_one_refunded_event_and_a_repeat_is_a_no_op(): void
+    {
+        $this->remote = fn (CreatePayment $r) => $this->payment($r->reference, PaymentStatus::Captured);
+        $payment = $this->start();
+        $refund = $this->store->reserveRefund($payment['reference'], 'operational-refund', 2000);
+        $this->store->confirmRefund($refund['reference'], 'refund-op-1', new Money(2000, 'ARS'));
+        $this->store->confirmRefund($refund['reference'], 'refund-op-1', new Money(2000, 'ARS'));
+        $events = $this->db->query("SELECT payload FROM outbox WHERE type='payment.refunded'")->fetchAll(\PDO::FETCH_COLUMN);
+        self::assertCount(1, $events);
+        $event = json_decode($events[0], true);
+        self::assertSame([$payment['reference'], $refund['reference'], '2000', 'ARS'], [$event['reference'], $event['operationReference'], $event['minor'], $event['currency']]);
+        self::assertSame('2000', $this->store->intent($payment['reference'])['refunded_minor']);
+        self::assertSame(1, (int) $this->db->query("SELECT count(*) FROM transactions WHERE kind='refund'")->fetchColumn());
+    }
+
+    public function test_compensation_refund_is_acknowledged_by_its_own_flow_and_emits_no_refunded_event(): void
+    {
+        $this->remote = fn (CreatePayment $r) => $this->payment($r->reference, PaymentStatus::Captured);
+        $payment = $this->start();
+        $refund = $this->store->reserveRefund($payment['reference'], 'compensation:v1:'.$payment['reference'], 12000);
+        $this->store->confirmRefund($refund['reference'], 'refund-compensation-1', new Money(12000, 'ARS'));
+        self::assertSame(0, (int) $this->db->query("SELECT count(*) FROM outbox WHERE type='payment.refunded'")->fetchColumn());
+        self::assertSame('refunded', $this->store->intent($payment['reference'])['state']);
+    }
+
     public function test_partial_refund_before_delivery_cannot_deliver_the_original_invoice(): void
     {
         $this->remote = fn (CreatePayment $r) => $this->payment($r->reference, PaymentStatus::Captured);
@@ -821,7 +846,10 @@ final class CoordinatorTest extends TestCase
         $product->expects(self::never())->method('deliver');
         $product->expects(self::once())->method('compensate');
         $worker = new RecoveryWorker($this->store, $this->coordinator, $this->accounts, $product);
-        self::assertSame(['delivered' => 1,'failed' => 0], $worker->outbox());
+        // 0.4.0: the confirmed operational refund is also a payment.refunded event; without a
+        // FinancialEventConsumer the worker keeps it pending (failed), exactly as for external refunds.
+        self::assertSame(['delivered' => 1,'failed' => 1], $worker->outbox());
+        self::assertSame(1, (int) $this->db->query("SELECT count(*) FROM outbox WHERE type='payment.refunded'")->fetchColumn());
         self::assertSame('compensation_requested', $this->store->intent($payment['reference'])['fulfillment']);
         self::assertSame('partially_refunded', $this->store->intent($payment['reference'])['state']);
     }
@@ -850,7 +878,10 @@ final class CoordinatorTest extends TestCase
             }
         };
         $worker = new RecoveryWorker($this->store, $this->coordinator, $this->accounts, $product);
-        self::assertSame(['delivered' => 1,'failed' => 0], $worker->outbox());
+        // 0.4.0: the confirmed operational refund is also a payment.refunded event; without a
+        // FinancialEventConsumer the worker keeps it pending (failed), exactly as for external refunds.
+        self::assertSame(['delivered' => 1,'failed' => 1], $worker->outbox());
+        self::assertSame(1, (int) $this->db->query("SELECT count(*) FROM outbox WHERE type='payment.refunded'")->fetchColumn());
         self::assertSame('completed', $this->store->intent($payment['reference'])['compensation']);
         self::assertSame(1, (int)$this->db->query('SELECT count(*) FROM refunds')->fetchColumn());
     }

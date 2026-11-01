@@ -7,7 +7,7 @@ namespace Ronu\PaymentGateways\Orchestration;
 use Ronu\PaymentGateways\{Capability, Money, Refund};
 use Ronu\PaymentGateways\Orchestration\Contracts\{AccountResolver, RefundEvidenceReader};
 
-/** No HTTP surface is registered. New refund writes remain disabled unless the consumer certifies them. */
+/** HTTP actions refund/refundShow exist since 0.4.0; new refund writes stay disabled unless the consumer sets refunds_enabled. */
 final class RefundCoordinator
 {
     public function __construct(private PostgresStore $store, private AccountResolver $accounts, private RefundEvidenceReader $reader, private bool $acceptNew = false)

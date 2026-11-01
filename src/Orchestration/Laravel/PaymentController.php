@@ -57,6 +57,47 @@ final class PaymentController
         });
     }
 
+    /**
+     * Operational refund of an owned, captured payment. Needs the `refund` capability on the
+     * payment's account (a buyer session never carries it) and an Idempotency-Key; the amount is
+     * an exact decimal string in the payment currency. An uncertain provider outcome answers 202
+     * with the durable operation, which is read below and recovered by the worker, never resent.
+     */
+    public function refund(Request $request): JsonResponse
+    {
+        return $this->respond($request, function () use ($request): array {
+            if (!$request->isJson() || strlen($request->getContent()) > 4096) {
+                throw new PaymentError('invalid_request', 422);
+            }
+            $input = $request->json()->all();
+            if (array_diff(array_keys($input), ['reference', 'amount', 'currency']) || !is_string($input['reference'] ?? null)
+                || !is_string($input['amount'] ?? null) || !is_string($input['currency'] ?? null)
+                || !preg_match('/^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,3})?$/D', $input['amount'])) {
+                throw new PaymentError('invalid_request', 422);
+            }
+            self::reference($input['reference']);
+            $key = $request->header('Idempotency-Key');
+            if (!is_string($key)) {
+                throw new PaymentError('invalid_idempotency_key', 422);
+            }
+            try {
+                $amount = \Ronu\PaymentGateways\Money::fromDecimal($input['amount'], $input['currency']);
+            } catch (\Throwable) {
+                throw new PaymentError('invalid_request', 422);
+            }
+            $actor = $this->runtime->adapter()->actor($request);
+            return $this->runtime->refunds()->request($actor, $input['reference'], $amount, $key);
+        });
+    }
+
+    public function refundShow(Request $request, string $reference): JsonResponse
+    {
+        return $this->respond($request, function () use ($request, $reference): array {
+            self::reference($reference);
+            return $this->runtime->refunds()->view($this->runtime->adapter()->actor($request), $reference);
+        });
+    }
+
     public function webhook(Request $request, string $account): JsonResponse
     {
         return $this->respond($request, function () use ($request, $account): array {

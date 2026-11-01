@@ -442,6 +442,11 @@ final class PostgresStore implements PaymentStore
             }
             $intent = $this->intent($initial['intent_reference'], true) ?? throw new PaymentError('not_found', 404);
             $refund = $this->row("SELECT * FROM {$this->tables['refunds']} WHERE reference=? FOR UPDATE", [$reference]);
+            // A repeated confirmation (webhook and worker read racing) is a no-op: one ledger row,
+            // one balance change and one product event per refund operation.
+            if ($refund['state'] === 'COMPLETED' && $refund['provider_id'] === $providerRefundId) {
+                return;
+            }
             if ((int) $refund['minor'] !== $amount->minor || $refund['currency'] !== $amount->currency || ($refund['provider_id'] !== null && $refund['provider_id'] !== $providerRefundId)) {
                 throw new PaymentError('refund_evidence_invalid', 409);
             }
@@ -457,6 +462,11 @@ final class PostgresStore implements PaymentStore
             }
             $this->query("UPDATE {$this->tables['refunds']} SET state='COMPLETED',provider_id=? WHERE reference=?", [$providerRefundId, $reference]);
             $this->updateRefundBalance($intent);
+            // An operational refund is a commercial fact the product must apply once. A compensation
+            // refund is the product's own request and is acknowledged through its compensation flow.
+            if (!str_starts_with((string) $refund['request_key'], 'compensation:')) {
+                $this->recordEvent(CanonicalJson::uuid(), 'payment.refunded', ['version' => 1,'observationVersion' => $intent['version'] + 1,'reference' => $intent['reference'],'subject' => $intent['subject'],'operationReference' => $reference,'minor' => (string) $amount->minor,'currency' => $amount->currency]);
+            }
         });
     }
 
