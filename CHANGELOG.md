@@ -6,6 +6,27 @@ romper la API, y aquí se dice cómo.
 
 ## [Sin publicar]
 
+## [0.4.0-alpha.1] — 2026-11-01 (candidato local, nunca publicado)
+
+Incluye todo lo de `0.3.0-alpha.2` más devoluciones operativas.
+
+### Añadido
+
+- Puente Laravel: acciones `PaymentController::refund` (POST con `reference` del pago, `amount` decimal
+  exacto y `currency`, más cabecera `Idempotency-Key`) y `refundShow` (lectura de la operación). Exigen
+  la capability `refund` sobre la cuenta del pago; una incertidumbre del proveedor responde 202 con la
+  operación durable, que recupera el worker sin reenviar.
+- Configuración `payments.refunds_enabled` (por defecto `false`): sin ella las escrituras nuevas de
+  refund responden `refunds_disabled` (503) antes de reservar; lecturas y recuperación no dependen de ella.
+
+### Cambiado
+
+- `PostgresStore::confirmRefund` registra un evento `payment.refunded` (versión 1) por cada refund
+  operativo confirmado, para que el producto aplique su efecto una vez. Los de compensación
+  (`compensation:`) no lo emiten: se acusan por su propio flujo. Confirmar dos veces el mismo refund no
+  cambia nada. Un consumidor sin `FinancialEventConsumer` verá ese evento pendiente en el outbox, como ya
+  ocurría con los refunds externos.
+
 ## [0.3.0-alpha.2] — 2026-10-30
 
 Primera 0.3 publicada: incluye todo lo de `0.3.0-alpha.1` más lo de abajo.
