@@ -19,6 +19,7 @@ final class GatewayRefundEvidenceReader implements RefundEvidenceReader
         if (!$account->gateway instanceof RefundLookup) {
             throw new PaymentError('refund_lookup_unsupported', 503);
         }
-        return $account->gateway->getRefund($paymentId, $refundId);
+        // Checkout Pro: the intent names the preference; its refunds live on the payment.
+        return $account->gateway->getRefund(ProviderView::refundTarget($account, $paymentId), $refundId);
     }
 }

@@ -6,6 +6,28 @@ romper la API, y aquí se dice cómo.
 
 ## [Sin publicar]
 
+## [0.6.0-alpha.1] — 2026-11-01 (candidato local, nunca publicado)
+
+### Añadido
+
+- **Mercado Pago Checkout Pro en la orquestación.** `Account` acepta la familia de API `checkout_pro` para
+  `mercadopago` (parámetro opcional `api`, `Account::API_OPTIONS`); es una identidad distinta de `orders`.
+  `ConfiguredAccounts` la lee de `config('payments.accounts.*.api')`.
+- `ProviderView`: el único sitio que sabe que en Checkout Pro el `provider_id` es la PREFERENCIA. Crea con
+  `createCheckout()`, lee por `getCheckout()` → pago (identidad = preferencia, `transactionId` = id numérico
+  del pago) y apunta los reembolsos al pago. Lo usan `Coordinator` (crear, refrescar), `RecoveryWorker`
+  (inbox y conciliación) y los reembolsos (`RefundCoordinator`, `GatewayRefundEvidenceReader`).
+- `MercadoPagoGateway::getRefund()` admite pagos de la Payments API (id numérico) leyendo `refunds` de
+  `GET /v1/payments/{id}`.
+- `FakeMercadoPago` habla Checkout Pro (preferencias, pagos numéricos que solo existen tras el intento,
+  búsqueda por `external_reference`, reembolsos sobre el pago).
+
+### Cambiado
+
+- `createCheckout()`/`getCheckout()` de Mercado Pago ya **no** toman el atajo de emulador (crear una orden):
+  Plaza sirve Checkout Pro, así que el camino es el de producción. Una creación incierta de Checkout Pro
+  queda pendiente de evidencia (Mercado Pago no notifica preferencias); nunca se repite la creación.
+
 ## [0.5.0-alpha.2] — 2026-11-01 (candidato local, nunca publicado)
 
 ### Añadido

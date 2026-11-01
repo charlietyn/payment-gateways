@@ -41,8 +41,8 @@ use Ronu\PaymentGateways\WebhookEvent;
  *    Mercado Pago; the result is a Payments API payment (`/v1/payments/{id}`), numeric id.
  *
  * getPayment(), capture(), cancel() and refund() take either id and route by its shape.
- * On the emulator (Plaza) there are no preferences: createCheckout() creates an order and
- * returns Plaza's buyer page, so the same consumer code runs end to end.
+ * On the emulator, Plaza serves Checkout Pro itself (preferences, numeric payments, search by
+ * external_reference), so createCheckout()/getCheckout() take the same path as in production.
  *
  * Config:
  *  - credentials.access_token (TEST-… / APP_USR-…)
@@ -111,9 +111,6 @@ final class MercadoPagoGateway implements Gateway, HostedCheckout, RefundLookup,
      */
     public function createCheckout(CreatePayment $request): Checkout
     {
-        if ($this->config->isEmulator()) {
-            return Checkout::forPayment($this->createPayment($request));
-        }
         if ($request->captureMode === CaptureMode::Manual) {
             throw new UnsupportedOperation('Mercado Pago Checkout Pro captures at once; use createPayment() for CaptureMode::Manual.');
         }
@@ -149,11 +146,6 @@ final class MercadoPagoGateway implements Gateway, HostedCheckout, RefundLookup,
     /** The preference, and the newest payment carrying its external_reference. */
     public function getCheckout(string $checkoutId): ?Checkout
     {
-        if ($this->config->isEmulator()) {
-            $payment = $this->getPayment($checkoutId);
-
-            return $payment === null ? null : Checkout::forPayment($payment);
-        }
         if (! preg_match('/^[A-Za-z0-9_-]{1,128}$/', $checkoutId)) {
             return null;
         }
@@ -193,11 +185,44 @@ final class MercadoPagoGateway implements Gateway, HostedCheckout, RefundLookup,
         return $order === null ? null : $this->orderToPayment($order);
     }
 
-    /** Orders embeds individual refunds in GET /v1/orders/{id}; numeric Payments IDs are a separate API. */
+    /**
+     * Orders embeds individual refunds in GET /v1/orders/{id}; a Payments API payment (numeric id,
+     * Checkout Pro) lists them in GET /v1/payments/{id} under `refunds`.
+     */
     public function getRefund(string $paymentId, string $refundId): ?Refund
     {
         if (self::isPaymentsApiId($paymentId)) {
-            throw new UnsupportedOperation('Refund lookup currently supports Mercado Pago Orders only.');
+            if (!preg_match('/^[0-9]{1,20}$/D', $refundId)) {
+                throw new \InvalidArgumentException('Invalid refund identity.');
+            }
+            $payment = $this->http->request('GET', '/v1/payments/' . $paymentId, $this->readHeaders(), allowNotFound: true);
+            if ($payment === null) {
+                return null;
+            }
+            if ((string) ($payment['id'] ?? '') !== $paymentId) {
+                throw new GatewayException('Refund lookup returned a different payment.');
+            }
+            $refunds = $payment['refunds'] ?? [];
+            if (!is_array($refunds) || !array_is_list($refunds)) {
+                throw new GatewayException('Invalid refund history.');
+            }
+            $currency = (string) ($payment['currency_id'] ?? $this->config->option('currency', 'ARS'));
+            foreach ($refunds as $refund) {
+                if (is_array($refund) && (string) ($refund['id'] ?? '') === $refundId) {
+                    if (!isset($refund['amount'], $refund['status'])) {
+                        throw new GatewayException('Refund lacks individual evidence.');
+                    }
+                    return new Refund(
+                        id: $refundId,
+                        amount: self::money($refund['amount'], $currency),
+                        status: (string) $refund['status'],
+                        paymentId: $paymentId,
+                        payment: $this->paymentToPayment($payment),
+                        raw: $refund,
+                    );
+                }
+            }
+            return null;
         }
         if (!preg_match('/^[A-Za-z0-9_-]{1,128}$/D', $paymentId) || !preg_match('/^[A-Za-z0-9_-]{1,128}$/D', $refundId)) {
             throw new \InvalidArgumentException('Invalid order or refund identity.');

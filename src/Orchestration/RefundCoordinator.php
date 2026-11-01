@@ -83,7 +83,7 @@ final class RefundCoordinator
         if ($this->store->claimRefund($refund['reference'])) {
             // SENDING has committed before I/O. Crash or any unclassified response retains the reservation.
             try {
-                $evidence = $account->gateway->refund($intent['provider_id'], $amount, $refund['remote_key']);
+                $evidence = $account->gateway->refund(ProviderView::refundTarget($account, $intent['provider_id']), $amount, $refund['remote_key']);
                 $this->apply($refund, $intent, $evidence);
             } catch (\Throwable) {
                 $this->store->markRefundUncertain($refund['reference']);

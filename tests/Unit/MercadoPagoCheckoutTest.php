@@ -197,17 +197,17 @@ final class MercadoPagoCheckoutTest extends TestCase
         }
     }
 
-    public function test_on_plaza_the_checkout_is_the_order_and_its_emulator_page(): void
+    public function test_on_plaza_checkout_pro_is_a_real_preference(): void
     {
-        $http = new MockHttp([MockHttp::json(201, ['id' => 'ORD01', 'status' => 'action_required', 'status_detail' => 'waiting_payment', 'total_amount' => '1500.50', 'external_reference' => 'ORDER-1'])]);
+        $http = new MockHttp([MockHttp::json(201, ['id' => 'pref-12345678901234', 'init_point' => 'http://checkout.test/plaza/checkout/pref-12345678901234', 'external_reference' => 'ORDER-1', 'items' => []])]);
         $gateway = GatewayFactory::make('plaza', ['credentials' => ['access_token' => 'TEST-1'], 'emulator' => ['api_url' => 'http://emu.test', 'checkout_url' => 'http://checkout.test']], $http->client);
 
         $this->assertInstanceOf(HostedCheckout::class, $gateway);
         $checkout = $gateway->createCheckout($this->request());
 
-        $this->assertSame('http://emu.test/plaza/v1/orders', (string) $http->request(0)->getUri());
-        $this->assertSame(['ORD01', 'ORD01', CheckoutStatus::Open], [$checkout->id, $checkout->paymentId, $checkout->status]);
-        $this->assertSame('http://checkout.test/plaza/checkout/ORD01', $checkout->url);
-        $this->assertFalse($checkout->returnsToMerchant);
+        // The emulator now answers Checkout Pro: no Orders shortcut, the same path as production.
+        $this->assertSame('http://emu.test/plaza/checkout/preferences', (string) $http->request(0)->getUri());
+        $this->assertSame(['pref-12345678901234', null, CheckoutStatus::Open], [$checkout->id, $checkout->paymentId, $checkout->status]);
+        $this->assertSame('http://checkout.test/plaza/checkout/pref-12345678901234', $checkout->url);
     }
 }

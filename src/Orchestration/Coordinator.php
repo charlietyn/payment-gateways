@@ -93,7 +93,7 @@ final class Coordinator
         }
         $intent = $this->store->intent($operation['intent_reference']) ?? throw new PaymentError('not_found', 404);
         try {
-            $payment = $account->gateway->createPayment(new CreatePayment(
+            $payment = ProviderView::create($account, new CreatePayment(
                 amount: $quote->amount,
                 reference: $intent['reference'],
                 idempotencyKey: $operation['remote_key'],
@@ -157,7 +157,7 @@ final class Coordinator
             throw new PaymentError('account_identity_changed', 503);
         }
         $this->store->assertProviderIoAllowed();
-        $payment = $account->gateway->getPayment($intent['provider_id']);
+        $payment = ProviderView::payment($account, $intent['provider_id'], new Money((int) $intent['amount_minor'], $intent['currency']), $intent['reference']);
         if ($payment === null) {
             throw new PaymentError('remote_resource_missing', 503);
         }

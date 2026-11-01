@@ -44,8 +44,13 @@ final class RecoveryWorker
                 if ($intent === null || $intent['account_identity'] !== $account->identity()) {
                     throw new PaymentError('unresolved_webhook', 503);
                 }
-                $payment = $account->gateway->getPayment($event['resource_id']);
-                if ($payment === null || $payment->id !== $event['resource_id']) {
+                // Checkout Pro notifies about the payment, while the intent names the preference:
+                // read it back through the preference so the identity the intent stored is the one checked.
+                $payment = $account->apiFamily === 'checkout_pro' && $intent['provider_id'] !== null
+                    ? ProviderView::payment($account, $intent['provider_id'], new \Ronu\PaymentGateways\Money((int) $intent['amount_minor'], $intent['currency']), $intent['reference'])
+                    : $account->gateway->getPayment($event['resource_id']);
+                $observed = $account->apiFamily === 'checkout_pro' && $intent['provider_id'] !== null ? $payment?->transactionId : $payment?->id;
+                if ($payment === null || $observed !== $event['resource_id']) {
                     throw new PaymentError('remote_resource_missing', 503);
                 }
                 $operation = $this->store->createOperationFor($intent['reference']);
@@ -175,7 +180,7 @@ final class RecoveryWorker
                     throw new PaymentError('account_identity_changed', 503);
                 }
                 $this->store->assertProviderIoAllowed();
-                $payment = $account->gateway->getPayment($intent['provider_id']);
+                $payment = ProviderView::payment($account, $intent['provider_id'], new \Ronu\PaymentGateways\Money((int) $intent['amount_minor'], $intent['currency']), $intent['reference']);
                 if ($payment === null) {
                     throw new PaymentError('remote_resource_missing', 503);
                 }

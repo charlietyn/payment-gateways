@@ -42,6 +42,14 @@ final class FakeMercadoPago
     /** @var array<string, array<string, mixed>> Order id => order, as the API returns it. */
     private array $orders = [];
 
+    /**
+     * Checkout Pro: preference id (`pref-<n>`) => the preference and, once the buyer attempted it,
+     * its Payments API payment (numeric id `<n>`). Same semantics as the Plaza emulator profile.
+     *
+     * @var array<string, array{preference: array<string, mixed>, payment: array<string, mixed>|null}>
+     */
+    private array $preferences = [];
+
     /** @var array<string, array{hash: string, status: int, body: array<string, mixed>}> */
     private array $replies = [];
 
@@ -81,9 +89,14 @@ final class FakeMercadoPago
         return $this;
     }
 
-    /** The buyer pays an open order (card on the hosted page, or the ticket). */
+    /** The buyer pays an open order (card on the hosted page, or the ticket), or a Checkout Pro preference. */
     public function pay(string $orderId, string $method = 'visa'): void
     {
+        if (isset($this->preferences[$orderId])) {
+            $this->attempt($orderId, 'approved', 'accredited');
+
+            return;
+        }
         $order = $this->open($orderId);
         $manual = ($order['capture_mode'] ?? 'automatic') === 'manual';
         $order['transactions']['payments'][0]['payment_method'] = ['id' => $method, 'type' => $method === 'pagofacil' ? 'ticket' : 'credit_card'];
@@ -95,6 +108,11 @@ final class FakeMercadoPago
     /** The buyer's card is rejected. */
     public function decline(string $orderId): void
     {
+        if (isset($this->preferences[$orderId])) {
+            $this->attempt($orderId, 'rejected', 'cc_rejected_other_reason');
+
+            return;
+        }
         $this->orders[$orderId] = self::withStatus($this->open($orderId), 'failed', 'failed');
     }
 
@@ -158,6 +176,10 @@ final class FakeMercadoPago
         }
 
         $method = $request->getMethod();
+        $checkoutPro = $this->checkoutPro($request);
+        if ($checkoutPro !== null) {
+            return $checkoutPro;
+        }
         if (! preg_match('#/v1/orders(?:/([A-Za-z0-9_-]+)(?:/(capture|cancel|refund))?)?$#', $request->getUri()->getPath(), $route)) {
             return [404, self::error(404, 'not_found', 'Resource not found.')];
         }
@@ -197,6 +219,95 @@ final class FakeMercadoPago
         }
 
         return [$status, $answer];
+    }
+
+    /**
+     * Checkout Pro routes: preferences, numeric payments (absent until attempted), search and refunds.
+     *
+     * @return array{int, array<string, mixed>}|null  Null when the request is not Checkout Pro.
+     */
+    private function checkoutPro(RequestInterface $request): ?array
+    {
+        $path = $request->getUri()->getPath();
+        $method = $request->getMethod();
+        if ($method === 'POST' && preg_match('#/checkout/preferences$#', $path)) {
+            $body = json_decode((string) $request->getBody(), true);
+            $items = is_array($body) ? ($body['items'] ?? null) : null;
+            if (! is_array($items) || $items === []) {
+                return [400, self::error(400, 'bad_request', 'items is required')];
+            }
+            $minor = 0;
+            foreach ($items as $item) {
+                $minor += (int) round(((float) ($item['unit_price'] ?? 0)) * 100) * (int) ($item['quantity'] ?? 1);
+            }
+            $id = 'pref-' . random_int(10_000_000_000_000, 99_999_999_999_999);
+            $this->preferences[$id] = ['preference' => [
+                'id' => $id,
+                'items' => $items,
+                'external_reference' => (string) ($body['external_reference'] ?? ''),
+                'back_urls' => $body['back_urls'] ?? [],
+                'auto_return' => $body['auto_return'] ?? '',
+                'init_point' => "https://fake.checkout.test/plaza/checkout/{$id}",
+                'transaction_minor' => $minor,
+                'currency_id' => (string) ($items[0]['currency_id'] ?? $this->currency),
+            ], 'payment' => null];
+
+            return [201, $this->preferences[$id]['preference']];
+        }
+        if ($method === 'GET' && preg_match('#/checkout/preferences/(pref-[0-9]+)$#', $path, $m)) {
+            return isset($this->preferences[$m[1]]) ? [200, $this->preferences[$m[1]]['preference']] : [404, self::error(404, 'not_found', 'Preference not found.')];
+        }
+        if ($method === 'GET' && preg_match('#/v1/payments/search$#', $path)) {
+            parse_str($request->getUri()->getQuery(), $query);
+            $results = [];
+            foreach (array_reverse($this->preferences) as $entry) {
+                if ($entry['payment'] !== null && $entry['preference']['external_reference'] === ($query['external_reference'] ?? null)) {
+                    $results[] = $entry['payment'];
+                }
+            }
+
+            return [200, ['paging' => ['total' => count($results), 'limit' => 30, 'offset' => 0], 'results' => $results]];
+        }
+        if (preg_match('#/v1/payments/([0-9]+)(/refunds)?$#', $path, $m)) {
+            $id = 'pref-' . $m[1];
+            $payment = $this->preferences[$id]['payment'] ?? null;
+            if ($payment === null) {
+                return [404, self::error(404, 'not_found', 'Payment not found.')];
+            }
+            if ($method === 'GET' && ! isset($m[2])) {
+                return [200, $payment];
+            }
+            if ($method === 'POST' && isset($m[2])) {
+                $body = json_decode((string) $request->getBody(), true);
+                $amount = is_array($body) && isset($body['amount']) ? (float) $body['amount'] : $payment['transaction_amount'] - $payment['transaction_amount_refunded'];
+                $refund = ['id' => random_int(1_000_000, 9_999_999), 'payment_id' => (int) $m[1], 'amount' => $amount, 'status' => 'approved'];
+                $payment['refunds'][] = $refund;
+                $payment['transaction_amount_refunded'] += $amount;
+                $full = $payment['transaction_amount_refunded'] >= $payment['transaction_amount'];
+                $payment['status'] = $full ? 'refunded' : 'approved';
+                $payment['status_detail'] = $full ? 'refunded' : 'partially_refunded';
+                $this->preferences[$id]['payment'] = $payment;
+
+                return [201, $refund];
+            }
+        }
+
+        return null;
+    }
+
+    private function attempt(string $preferenceId, string $status, string $detail): void
+    {
+        $preference = $this->preferences[$preferenceId]['preference'];
+        $this->preferences[$preferenceId]['payment'] = [
+            'id' => (int) substr($preferenceId, 5),
+            'status' => $status,
+            'status_detail' => $detail,
+            'transaction_amount' => $preference['transaction_minor'] / 100,
+            'transaction_amount_refunded' => 0,
+            'currency_id' => $preference['currency_id'],
+            'external_reference' => $preference['external_reference'],
+            'refunds' => [],
+        ];
     }
 
     /**

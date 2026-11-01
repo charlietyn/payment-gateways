@@ -69,7 +69,9 @@ final class ConfiguredAccounts implements AccountResolver
             [rtrim($config['checkout_url'], '/')],
             (bool) ($this->configuration['accept_new'] ?? false),
             $previousGateway,
-            $previousUntil
+            $previousUntil,
+            // Mercado Pago may speak Orders (default) or Checkout Pro; the Account refuses anything else.
+            isset($config['api']) ? (string) $config['api'] : null,
         );
     }
 
