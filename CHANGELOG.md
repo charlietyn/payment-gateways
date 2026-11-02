@@ -6,7 +6,10 @@ romper la API, y aquí se dice cómo.
 
 ## [Sin publicar]
 
-## [0.6.0-alpha.2] — 2026-11-01 (candidato local, nunca publicado)
+## [0.6.0-alpha.2] — 2026-11-02
+
+Primera versión publicada desde `0.3.0-alpha.2`: incluye `0.4.0-alpha.1`, `0.5.0-alpha.1`, `0.5.0-alpha.2` y
+`0.6.0-alpha.1`, que nunca se publicaron por separado.
 
 ### Corregido
 
