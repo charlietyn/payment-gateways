@@ -6,6 +6,27 @@ romper la API, y aquí se dice cómo.
 
 ## [Sin publicar]
 
+## [0.7.0-alpha.1] — 2026-11-02 (candidato local)
+
+### Añadido
+
+- **Adaptador de producto genérico** `Orchestration\Laravel\Products\TableSubjectAdapter`: cobra una fila de
+  una tabla del proyecto configurada en `payments.product` (tabla, referencia única, importe en decimal o
+  céntimos, moneda por fila o fija, estados, cupo, caducidad, revisión, descripción, borrado lógico). Valida su
+  configuración (`ProductConfiguration`) y, si falla, `ready()` es `false` con todos los problemas en el log.
+- Estrategias de propiedad configurables: `owner`, `tenant` y `link` (referencia ≥ 16 caracteres).
+- Eventos de Laravel tras el commit y al menos una vez: `PaymentSubjectDelivered`, `…Rejected` (con motivo),
+  `…CompensationRequested`, `…CompensationAcknowledged`, `…Refunded` (`full`) y `…Disputed` (`state`).
+- `ActorResolver`: el proyecto aporta quién paga; la librería no depende de ningún paquete de autenticación.
+- `Quote` acepta `shared`, `retryable` y `description` (opcionales; los adaptadores existentes no cambian).
+- **Sujetos compartidos**: con `shared` el coordinador serializa por sujeto y rechaza con
+  `subject_already_reserved` (409) un segundo cobro de OTRA aplicación mientras uno está en curso.
+- **Reintento tras un pago rechazado**: con `retryable`, si el último intento terminó sin dinero, el siguiente se
+  guarda como `<sujeto>#<n>` (sin cambiar el esquema; el primero conserva el sujeto). `SubjectAttempt`.
+- `PaymentStore::intentsForSubject()`; la descripción del `Quote` llega al proveedor (`CreatePayment`).
+- Documentación: `docs/adaptador-de-producto.md`.
+
+
 ## [0.6.0-alpha.2] — 2026-11-02
 
 Primera versión publicada desde `0.3.0-alpha.2`: incluye `0.4.0-alpha.1`, `0.5.0-alpha.1`, `0.5.0-alpha.2` y

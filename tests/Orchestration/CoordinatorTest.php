@@ -1669,4 +1669,127 @@ final class CoordinatorTest extends TestCase
         self::assertSame(1, $this->store->metrics()['replays']);
         self::assertSame(1, $this->posts);
     }
+
+    /** Each attempt gets its own provider resource (the remote identity is unique per account). */
+    private function attemptPayment(CreatePayment $request, PaymentStatus $status): Payment
+    {
+        return new Payment('mercadopago', 'ORD-'.substr($request->reference, 0, 8), $status, Money::fromDecimal('120.00', 'ARS'), $request->reference, 'test', transactionId: $status->isPaid() ? 'tx-'.substr($request->reference, 0, 8) : null, capturedAmount: $status->isPaid() ? Money::fromDecimal('120.00', 'ARS') : null);
+    }
+
+    private function quote(Actor $actor, string $subject = 'invoice:uuid-example', bool $shared = false, bool $retryable = false): Quote
+    {
+        return new Quote($subject, 'v1', $actor->scope(), Money::fromDecimal('120.00', 'ARS'), 2000, shared: $shared, retryable: $retryable);
+    }
+
+    /** @return list<string> */
+    private function subjectsStored(): array
+    {
+        return $this->db->query('SELECT subject FROM intents ORDER BY id')->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    private function sharedCoordinator(bool $shared): Coordinator
+    {
+        $subjects = new class ($shared) implements SubjectResolver {
+            public function __construct(private bool $shared)
+            {
+            }
+            public function resolve(Actor $actor, string $subject): Quote
+            {
+                return new Quote($subject, 'v1', $actor->scope(), Money::fromDecimal('120.00', 'ARS'), 2000, shared: $this->shared, retryable: true);
+            }
+        };
+        return new Coordinator($this->store, $subjects, $this->accounts, fn () => 1000);
+    }
+
+    public function test_retryable_subject_starts_a_new_attempt_after_a_declined_one(): void
+    {
+        $this->subjects->quotes['invoice:uuid-example'] = $this->quote($this->actor, retryable: true);
+        $this->remote = fn (CreatePayment $request) => $this->attemptPayment($request, PaymentStatus::Failed);
+        $first = $this->start('declined-1');
+        self::assertSame('failed', $first['financialState']);
+        $this->remote = fn (CreatePayment $request) => $this->attemptPayment($request, PaymentStatus::RequiresAction);
+        $second = $this->start('retry-2');
+        self::assertNotSame($first['reference'], $second['reference']);
+        self::assertSame(['invoice:uuid-example', 'invoice:uuid-example#2'], $this->subjectsStored());
+        self::assertSame(2, $this->posts);
+        // The retry replays by its own key, still named by the bare subject.
+        self::assertSame($second, $this->start('retry-2'));
+        self::assertSame(2, $this->posts);
+    }
+
+    public function test_plain_subject_stays_reserved_after_a_declined_attempt(): void
+    {
+        $this->remote = fn (CreatePayment $request) => $this->attemptPayment($request, PaymentStatus::Failed);
+        $this->start('declined-1');
+        try {
+            $this->start('retry-2');
+            self::fail('A non-retryable subject started a second attempt');
+        } catch (PaymentError $error) {
+            self::assertSame(['subject_already_reserved', 409], [$error->getMessage(), $error->httpStatus]);
+        }
+        self::assertSame(1, $this->posts);
+    }
+
+    public function test_retry_is_refused_while_the_previous_attempt_is_not_over(): void
+    {
+        $this->subjects->quotes['invoice:uuid-example'] = $this->quote($this->actor, retryable: true);
+        $this->remote = fn (CreatePayment $request) => $this->attemptPayment($request, PaymentStatus::RequiresAction);
+        $this->start('pending-1');
+        try {
+            $this->start('retry-2');
+            self::fail('A retry started while the first attempt was pending');
+        } catch (PaymentError $error) {
+            self::assertSame('subject_already_reserved', $error->getMessage());
+        }
+    }
+
+    public function test_retryable_subject_never_accepts_an_attempt_marker_from_outside(): void
+    {
+        $this->subjects->quotes['invoice:uuid-example#2'] = $this->quote($this->actor, 'invoice:uuid-example#2', retryable: true);
+        try {
+            $this->coordinator->checkout($this->actor, 'invoice:uuid-example#2', 'v1', 'forged-1');
+            self::fail('An attempt marker was accepted from the caller');
+        } catch (PaymentError $error) {
+            self::assertSame(['invalid_quote', 422], [$error->getMessage(), $error->httpStatus]);
+        }
+        self::assertSame(0, $this->posts);
+    }
+
+    public function test_shared_subject_refuses_another_actor_while_one_payment_is_active(): void
+    {
+        $other = new Actor('invoices', 'tenant-a', 'buyer-b', ['a'], ['create', 'read']);
+        $coordinator = $this->sharedCoordinator(true);
+        $this->remote = fn (CreatePayment $request) => $this->attemptPayment($request, PaymentStatus::RequiresAction);
+        $coordinator->checkout($this->actor, 'invoice:shared', 'v1', 'a-1');
+        try {
+            $coordinator->checkout($other, 'invoice:shared', 'v1', 'b-1');
+            self::fail('Two actors held an active payment of one shared subject');
+        } catch (PaymentError $error) {
+            self::assertSame(['subject_already_reserved', 409], [$error->getMessage(), $error->httpStatus]);
+        }
+        self::assertSame(1, $this->posts);
+    }
+
+    public function test_shared_subject_lets_another_actor_pay_after_a_declined_attempt(): void
+    {
+        $other = new Actor('invoices', 'tenant-a', 'buyer-b', ['a'], ['create', 'read']);
+        $coordinator = $this->sharedCoordinator(true);
+        $this->remote = fn (CreatePayment $request) => $this->attemptPayment($request, PaymentStatus::Failed);
+        $coordinator->checkout($this->actor, 'invoice:shared', 'v1', 'a-1');
+        $this->remote = fn (CreatePayment $request) => $this->attemptPayment($request, PaymentStatus::RequiresAction);
+        $view = $coordinator->checkout($other, 'invoice:shared', 'v1', 'b-1');
+        self::assertSame('requires_action', $view['financialState']);
+        // Another scope: its own first attempt, so the bare subject again.
+        self::assertSame(['invoice:shared', 'invoice:shared'], $this->subjectsStored());
+    }
+
+    public function test_unshared_subject_keeps_scopes_independent(): void
+    {
+        $other = new Actor('invoices', 'tenant-a', 'buyer-b', ['a'], ['create', 'read']);
+        $coordinator = $this->sharedCoordinator(false);
+        $this->remote = fn (CreatePayment $request) => $this->attemptPayment($request, PaymentStatus::RequiresAction);
+        $coordinator->checkout($this->actor, 'invoice:own', 'v1', 'a-1');
+        $coordinator->checkout($other, 'invoice:own', 'v1', 'b-1');
+        self::assertSame(2, $this->posts);
+    }
 }

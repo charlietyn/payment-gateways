@@ -94,6 +94,20 @@ final class PostgresStore implements PaymentStore
         return $this->one("SELECT data FROM {$this->tables['intents']} WHERE scope=? AND subject=?", [$scope, $subject]);
     }
 
+    /** @return list<array<string, mixed>> */
+    public function intentsForSubject(string $subject): array
+    {
+        // left() rather than LIKE: a subject may legitimately contain % or _.
+        $rows = $this->query(
+            "SELECT data FROM {$this->tables['intents']} WHERE subject=? OR left(subject, ?)=? ORDER BY id",
+            [$subject, strlen($subject) + 1, $subject.'#'],
+        )->fetchAll(PDO::FETCH_COLUMN);
+        return array_values(array_filter(
+            array_map(fn (string $json): array => $this->decode($json), $rows),
+            static fn (array $intent): bool => SubjectAttempt::base((string) $intent['subject']) === $subject,
+        ));
+    }
+
     /** @return array<string, mixed>|null */
     public function intentByProvider(string $accountIdentity, string $providerId): ?array
     {

@@ -43,7 +43,9 @@ final class Coordinator
         if ($quote->ownerScope !== $actor->scope()) {
             throw new PaymentError('not_found', 404);
         }
-        if ($quote->subject !== $subject || $quote->revision !== $revision || $quote->expiresAt <= ($this->clock)() || $quote->amount->currency !== $account->currency) {
+        if ($quote->subject !== $subject || $quote->revision !== $revision || $quote->expiresAt <= ($this->clock)() || $quote->amount->currency !== $account->currency
+            // `#` names attempts internally (SubjectAttempt); it never comes from outside for a retryable subject.
+            || ($quote->retryable && str_contains($subject, '#'))) {
             throw new PaymentError('invalid_quote', 422);
         }
         if (isset($historical) && ((string) $quote->amount->minor !== $historical['amount_minor'] || $quote->amount->currency !== $historical['currency'])) {
@@ -51,16 +53,18 @@ final class Coordinator
         }
         $operation = $this->store->transaction(function () use ($actor, $quote, $key, $account): array {
             $this->store->lock($actor->scope(), 'key/'.$account->alias.'/'.$key);
+            // A shared subject may be paid by several actors: serialize them on the subject itself.
+            if ($quote->shared) {
+                $this->store->lock('shared-subject', $quote->subject);
+            }
             $this->store->lock($actor->scope(), $quote->subject);
             $existing = $this->store->operationByKey($actor->scope(), $key, $account->alias);
             if ($existing !== null) {
                 return $existing;
             }
-            if ($this->store->intentBySubject($actor->scope(), $quote->subject) !== null) {
-                throw new PaymentError('subject_already_reserved', 409);
-            }
+            $attempt = $this->attemptSubject($actor, $quote);
             $intent = [
-                'reference' => CanonicalJson::uuid(), 'scope' => $actor->scope(), 'subject' => $quote->subject, 'quote_revision' => $quote->revision,
+                'reference' => CanonicalJson::uuid(), 'scope' => $actor->scope(), 'subject' => $attempt, 'quote_revision' => $quote->revision,
                 'account_alias' => $account->alias, 'account_identity' => $account->identity(), 'configuration_version' => $account->configurationVersion,
                 'currency' => $quote->amount->currency, 'amount_minor' => (string) $quote->amount->minor,
                 'state' => 'created', 'fulfillment' => 'pending', 'captured_minor' => '0', 'refunded_minor' => '0',
@@ -97,6 +101,7 @@ final class Coordinator
                 amount: $quote->amount,
                 reference: $intent['reference'],
                 idempotencyKey: $operation['remote_key'],
+                description: $quote->description,
             ));
             $this->apply($intent, $payment, $account, $operation['reference']);
         } catch (\Throwable) {
@@ -121,10 +126,39 @@ final class Coordinator
     {
         $actor->require('create', $operation['account_alias']);
         $intent = $this->store->intent($operation['intent_reference']) ?? throw new PaymentError('not_found', 404);
-        if ($intent['subject'] !== $subject || $intent['quote_revision'] !== $revision) {
+        // A retry attempt is stored as `<subject>#<n>`; the caller still names the bare subject.
+        if (SubjectAttempt::base($intent['subject']) !== $subject || $intent['quote_revision'] !== $revision) {
             throw new PaymentError('idempotency_conflict', 409);
         }
         return $this->operationView($actor, $operation['reference'], 'create');
+    }
+
+    /**
+     * The subject this new payment is stored under.
+     *
+     * Same rules as before for a plain quote: one payment per subject and actor. A shared quote also
+     * refuses while ANOTHER actor holds a payment that is not over. A retryable quote starts the next
+     * attempt when the last one ended without money.
+     */
+    private function attemptSubject(Actor $actor, Quote $quote): string
+    {
+        $all = $this->store->intentsForSubject($quote->subject);
+        if ($quote->shared) {
+            foreach ($all as $intent) {
+                if ($intent['scope'] !== $actor->scope() && !SubjectAttempt::endedWithoutMoney($intent)) {
+                    throw new PaymentError('subject_already_reserved', 409);
+                }
+            }
+        }
+        $own = array_values(array_filter($all, static fn (array $intent): bool => $intent['scope'] === $actor->scope()));
+        if ($own === []) {
+            return $quote->subject;
+        }
+        $latest = $own[array_key_last($own)];
+        if (!$quote->retryable || !SubjectAttempt::endedWithoutMoney($latest)) {
+            throw new PaymentError('subject_already_reserved', 409);
+        }
+        return SubjectAttempt::next($quote->subject, SubjectAttempt::number($latest['subject']));
     }
 
     /** @return array<string, mixed> */

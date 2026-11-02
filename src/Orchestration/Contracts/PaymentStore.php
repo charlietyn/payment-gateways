@@ -15,6 +15,12 @@ interface PaymentStore
     public function operationByKey(string $scope, string $key, ?string $alias): ?array;
     /** @return array<string, mixed>|null */
     public function intentBySubject(string $scope, string $subject): ?array;
+    /**
+     * Every attempt of a subject (`<subject>` and `<subject>#<n>`) in every scope, oldest first.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function intentsForSubject(string $subject): array;
     /** @return array<string, mixed>|null */
     public function intent(string $reference, bool $lock = false): ?array;
     /** @return array<string, mixed>|null */
