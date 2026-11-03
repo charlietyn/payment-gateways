@@ -374,6 +374,31 @@ final class PaymentSetupTest extends TestCase
         self::assertDirectoryDoesNotExist($this->root.'/storage/app');
     }
 
+    public function test_command_accepts_generated_structured_tables_and_preserves_runtime_configuration(): void
+    {
+        $mapping = ['intents' => ['schema' => 'main', 'table' => 'intents']];
+        $this->app['config']->set('payments.tables', $mapping);
+        [$code, $output] = $this->command(['--frontend-env' => $this->root.'/front.env']);
+        self::assertSame(0, $code, $output);
+        self::assertSame($mapping, $this->app['config']->get('payments.tables'));
+        [$code, $output] = $this->command(['--frontend-env' => $this->root.'/front.env']);
+        self::assertSame(0, $code, $output);
+        self::assertStringContainsString('unchanged', $output);
+        $this->capsule->getDatabaseManager()->table('intents')->insert(['data' => json_encode(['account_alias' => 'mp', 'account_identity' => 'another-identity'])]);
+        [$code, $output] = $this->command(['--dry-run' => true]);
+        self::assertSame(1, $code);
+        self::assertStringContainsString('account_identity_changed:mp', $output);
+    }
+
+    public function test_command_rejects_invalid_structured_table_before_writes(): void
+    {
+        $this->app['config']->set('payments.tables.intents', ['schema' => 'main', 'table' => 'intents; DELETE']);
+        [$code, $output] = $this->command(['--frontend-env' => $this->root.'/front.env']);
+        self::assertSame(1, $code);
+        self::assertStringContainsString('invalid_storage_mapping', $output);
+        self::assertFileDoesNotExist($this->root.'/front.env');
+    }
+
     public function test_command_refuses_historical_identity_even_if_env_was_already_changed(): void
     {
         $identity = (new ConfiguredAccounts(['accounts' => ['mp' => $this->account()]]))->account('mp')->identity();

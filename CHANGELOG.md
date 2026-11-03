@@ -6,7 +6,13 @@ romper la API, y aquí se dice cómo.
 
 ## [Sin publicar]
 
-### 0.8.0-alpha.1 — candidato de setup local (pendiente de autorización de publicación)
+### 0.8.0-alpha.2 — corrección del setup generado (pendiente de autorización)
+
+- El setup acepta el mapa estructurado `schema/table` que utiliza el runtime y emite el generador.
+  Lo normaliza solo para comprobar tablas e historial; conserva la configuración del runtime.
+- Regresión de la puerta F4: migraciones correctas que alpha.1 rechazaba como `payment_tables_not_migrated`.
+
+## [0.8.0-alpha.1] — 2026-11-03 (publicado con autorización)
 
 - Nuevo `payments:setup`: validación de tablas, adaptador, rutas y scheduler; partner config/Eloquent;
   provisión idempotente de Plaza, Vector y Harbor, actualización del webhook y configuración del front.

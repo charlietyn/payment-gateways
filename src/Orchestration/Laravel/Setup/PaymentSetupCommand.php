@@ -53,11 +53,13 @@ final class PaymentSetupCommand extends Command
             if (!isset($tables['intents']) || $tables === []) {
                 throw new SetupFailure('payment_tables_not_configured');
             }
-            foreach ($tables as $table) {
-                if (!is_string($table) || !$db->getSchemaBuilder()->hasTable($table)) {
+            foreach ($tables as $key => $table) {
+                $tables[$key] = $this->tableName($table);
+                if (!$db->getSchemaBuilder()->hasTable($tables[$key])) {
                     throw new SetupFailure('payment_tables_not_migrated');
                 }
             }
+            $config['tables'] = $tables;
             if (!$runtime->adapter()->ready()) {
                 throw new SetupFailure('adapter_not_ready');
             }
@@ -248,6 +250,23 @@ final class PaymentSetupCommand extends Command
     {
         $value = $this->option($name);
         return is_string($value) ? $value : '';
+    }
+
+    /** Laravel queries use qualified names; the runtime configuration keeps its structured mapping. */
+    private function tableName(mixed $table): string
+    {
+        if (is_array($table)) {
+            foreach (['schema', 'table'] as $part) {
+                if (!isset($table[$part]) || !is_string($table[$part]) || !preg_match('/^[A-Za-z_][A-Za-z0-9_]{0,62}$/D', $table[$part])) {
+                    throw new SetupFailure('invalid_storage_mapping');
+                }
+            }
+            return $table['schema'].'.'.$table['table'];
+        }
+        if (!is_string($table) || !preg_match('/^[A-Za-z_][A-Za-z0-9_]{0,62}(\.[A-Za-z_][A-Za-z0-9_]{0,62})?$/D', $table)) {
+            throw new SetupFailure('invalid_storage_mapping');
+        }
+        return $table;
     }
 
     /** @param array<string,mixed> $account */
