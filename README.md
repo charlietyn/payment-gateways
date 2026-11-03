@@ -18,6 +18,10 @@ Mercado Pago · Stripe · PayPal — el mismo código, en el emulador y en produ
 
 </div>
 
+La línea **0.8.0 (candidato sin publicar)** añade [`payments:setup`](docs/setup-local.md): prepara el
+partner y las cuentas del emulador local sin editar configuración generada. La apertura de ventas
+requiere `--emulator` explícito y un entorno distinto de producción.
+
 ---
 
 ## ✨ Por qué

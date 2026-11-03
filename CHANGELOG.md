@@ -6,6 +6,18 @@ romper la API, y aquí se dice cómo.
 
 ## [Sin publicar]
 
+### 0.8.0-alpha.1 — candidato de setup local (pendiente de autorización de publicación)
+
+- Nuevo `payments:setup`: validación de tablas, adaptador, rutas y scheduler; partner config/Eloquent;
+  provisión idempotente de Plaza, Vector y Harbor, actualización del webhook y configuración del front.
+- `--dry-run` no escribe ni provisiona; `--json` no contiene secretos. Las ventas solo se abren con
+  `--emulator`, fuera de producción y tras las comprobaciones. No se ejecutan migraciones ni cobros.
+- Conservación de claves y permisos por cuenta; rechazo de identidades históricas cambiadas, clientes
+  revocados, nombres duplicados y credenciales perdidas (sin rotación implícita).
+- Puerto `Setup\ValueStore` para almacenes externos de secretos; el uso de Floci sin integración
+  configurada falla antes de escribir secretos en `.env`.
+- Requisitos y configuración: `docs/setup-local.md`. La orquestación sigue limitada al emulador.
+
 ## [0.7.0-alpha.1] — 2026-11-02 (candidato local)
 
 ### Añadido
