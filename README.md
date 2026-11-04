@@ -18,7 +18,7 @@ Mercado Pago · Stripe · PayPal — el mismo código, en el emulador y en produ
 
 </div>
 
-La línea **0.8.0 (candidato sin publicar)** añade [`payments:setup`](docs/setup-local.md): prepara el
+La versión **0.8.0-alpha.3** incluye [`payments:setup`](docs/setup-local.md): prepara el
 partner y las cuentas del emulador local sin editar configuración generada. La apertura de ventas
 requiere `--emulator` explícito y un entorno distinto de producción.
 
@@ -44,15 +44,11 @@ requiere `--emulator` explícito y un entorno distinto de producción.
 ## 📦 Instalar
 
 ```bash
-composer require ronu/payment-gateways
+composer require ronu/payment-gateways:0.8.0-alpha.3
 ```
 
-Mientras no esté en Packagist, desde GitHub:
-
-```json
-"repositories": [{ "type": "vcs", "url": "https://github.com/charlietyn/payment-gateways" }],
-"require": { "ronu/payment-gateways": "^0.2" }
-```
+Disponible en [Packagist](https://packagist.org/packages/ronu/payment-gateways).
+La línea 0.8 sigue en alpha; el comando fija la versión explícitamente.
 
 PHP ≥ 8.2 con `ext-json` y `ext-openssl`. El núcleo no depende de ningún framework; el puente de Laravel se registra solo.
 

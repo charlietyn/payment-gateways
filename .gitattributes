@@ -1,3 +1,5 @@
+*.php text eol=lf
+
 # What `composer require` downloads: src/ (Testing/ included), config/, the license and the docs a user reads.
 /.github            export-ignore
 /tests              export-ignore

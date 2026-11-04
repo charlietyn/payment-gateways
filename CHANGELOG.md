@@ -6,13 +6,23 @@ romper la API, y aquí se dice cómo.
 
 ## [Sin publicar]
 
-### 0.8.0-alpha.2 — corrección del setup generado (pendiente de autorización)
+## [0.8.0-alpha.3] — 2026-11-04
+
+### Corregido
+
+- Documentación de instalación actualizada para la versión alpha disponible en Packagist.
+- Finales de línea LF para los archivos PHP, para que la comprobación de formato sea consistente
+  en Windows y Linux.
+
+## [0.8.0-alpha.2] — 2026-11-03
+
+### Corregido
 
 - El setup acepta el mapa estructurado `schema/table` que utiliza el runtime y emite el generador.
   Lo normaliza solo para comprobar tablas e historial; conserva la configuración del runtime.
 - Regresión de la puerta F4: migraciones correctas que alpha.1 rechazaba como `payment_tables_not_migrated`.
 
-## [0.8.0-alpha.1] — 2026-11-03 (publicado con autorización)
+## [0.8.0-alpha.1] — 2026-11-03
 
 - Nuevo `payments:setup`: validación de tablas, adaptador, rutas y scheduler; partner config/Eloquent;
   provisión idempotente de Plaza, Vector y Harbor, actualización del webhook y configuración del front.
@@ -24,7 +34,7 @@ romper la API, y aquí se dice cómo.
   configurada falla antes de escribir secretos en `.env`.
 - Requisitos y configuración: `docs/setup-local.md`. La orquestación sigue limitada al emulador.
 
-## [0.7.0-alpha.1] — 2026-11-02 (candidato local)
+## [0.7.0-alpha.1] — 2026-11-02
 
 ### Añadido
 

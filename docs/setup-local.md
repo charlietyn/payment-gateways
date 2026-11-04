@@ -1,4 +1,4 @@
-# Setup local de pagos — candidato 0.8.0-alpha.1
+# Setup local de pagos — 0.8.0-alpha.3
 
 `payments:setup` pertenece a esta biblioteca. El generador configura sus nombres de variables y los
 scripts de arranque; el producto conserva su adaptador y sus datos de negocio. El comando no migra,
