@@ -9,8 +9,9 @@ use Ronu\PaymentGateways\Contracts\Gateway;
 final readonly class Account
 {
     /**
-     * Accepted combinations, all local emulator only: Plaza (Mercado Pago Orders), Vector (Stripe
-     * PaymentIntents) and Harbor (PayPal Orders v2). Only currencies the emulator accepts and with two
+     * Accepted combinations: Plaza (Mercado Pago Orders / Checkout Pro), Vector (Stripe PaymentIntents)
+     * and Harbor (PayPal Orders v2) on the emulator; Mercado Pago Checkout Pro in sandbox and live
+     * (ConfiguredAccounts enforces which provider/API may leave the emulator). Only currencies with two
      * decimals are declared; zero- and three-decimal currencies stay out until a provider admits them.
      */
     public const CURRENCIES = ['mercadopago' => ['ARS'], 'stripe' => ['ARS', 'USD', 'EUR'], 'paypal' => ['USD', 'EUR']];
@@ -24,6 +25,9 @@ final readonly class Account
      * merchant on both APIs is two accounts, never one whose history changes meaning.
      */
     public const API_OPTIONS = ['mercadopago' => ['orders', 'checkout_pro'], 'stripe' => ['payment_intents'], 'paypal' => ['orders_v2']];
+
+    /** Where an account's money moves. The environment is part of the identity: never one account's history in two. */
+    public const ENVIRONMENTS = ['emulator', 'sandbox', 'live'];
 
     /** The family this account speaks: the declared one, or the gateway's default. */
     public string $apiFamily;
@@ -44,7 +48,7 @@ final readonly class Account
             || ($previousWebhookGateway !== null && $previousWebhookGateway->name() !== $gateway->name())) {
             throw new PaymentError('invalid_webhook_rotation', 503);
         }
-        if ($environment !== 'emulator' || !in_array($currency, self::CURRENCIES[$gateway->name()] ?? [], true)
+        if (!in_array($environment, self::ENVIRONMENTS, true) || !in_array($currency, self::CURRENCIES[$gateway->name()] ?? [], true)
             || !in_array($this->apiFamily, self::API_OPTIONS[$gateway->name()] ?? [], true)) {
             throw new PaymentError('unsupported_account', 503);
         }

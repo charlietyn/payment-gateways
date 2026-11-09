@@ -8,6 +8,9 @@ la entrega. No necesita ninguna entidad del producto ni una fachada de Laravel.
 > **Estado:** candidato de integración sin publicar. Sólo está acreditado para Laravel 12 +
 > PostgreSQL + Mercado Pago Orders. Stripe, PayPal y el refund operativo siguen deshabilitados hasta
 > que tengan su gate completo.
+>
+> **Cuentas reales:** con `environment` `sandbox` o `live`, una cuenta Mercado Pago Checkout Pro cobra
+> contra la API real. Ver [cuenta-real-mercadopago.md](cuenta-real-mercadopago.md).
 
 ## Migrar desde `ronu/payment-orchestration`
 

@@ -6,6 +6,26 @@ romper la API, y aquí se dice cómo.
 
 ## [Sin publicar]
 
+## [0.9.0-alpha.1] — 2026-11-09
+
+### Añadido
+
+- **Cuentas reales de Mercado Pago en la orquestación.** `ConfiguredAccounts` acepta `environment`
+  `sandbox` o `live` (por defecto, `emulator`) para cuentas `mercadopago` con `api` `checkout_pro`.
+  - El host es siempre `https://api.mercadopago.com`.
+  - El comprador solo puede ir a `www.mercadopago.com.ar` (en sandbox, también a `sandbox.mercadopago.com.ar`).
+  - `live` rechaza credenciales que no sean `APP_USR-`.
+  - `statement_descriptor` es opcional y se valida.
+  - La rotación del secreto del webhook funciona igual que en el emulador.
+- Nuevos códigos de error: `unsupported_live_api`, `live_requires_production_credentials`, `invalid_statement_descriptor`.
+- `ConfiguredAccounts` acepta un `Services` opcional (cliente HTTP) para pruebas.
+- Guía: `docs/cuenta-real-mercadopago.md`.
+
+### Cambiado
+
+- `Account` admite los entornos `emulator`, `sandbox` y `live` (`Account::ENVIRONMENTS`). El entorno ya
+  formaba parte de la identidad, así que las cuentas existentes del emulador no cambian de identidad.
+
 ## [0.8.0-alpha.3] — 2026-11-04
 
 ### Corregido

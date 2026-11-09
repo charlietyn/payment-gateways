@@ -18,9 +18,10 @@ Mercado Pago · Stripe · PayPal — el mismo código, en el emulador y en produ
 
 </div>
 
-La versión **0.8.0-alpha.3** incluye [`payments:setup`](docs/setup-local.md): prepara el
-partner y las cuentas del emulador local sin editar configuración generada. La apertura de ventas
-requiere `--emulator` explícito y un entorno distinto de producción.
+La versión **0.9.0-alpha.1** añade cuentas reales de Mercado Pago Checkout Pro (`environment` `sandbox` o
+`live`) a la orquestación: [docs/cuenta-real-mercadopago.md](docs/cuenta-real-mercadopago.md).
+[`payments:setup`](docs/setup-local.md) prepara el partner y las cuentas del emulador local sin editar
+configuración generada. La apertura de ventas requiere `--emulator` explícito y un entorno distinto de producción.
 
 ---
 
@@ -44,7 +45,7 @@ requiere `--emulator` explícito y un entorno distinto de producción.
 ## 📦 Instalar
 
 ```bash
-composer require ronu/payment-gateways:0.8.0-alpha.3
+composer require ronu/payment-gateways:0.9.0-alpha.1
 ```
 
 Disponible en [Packagist](https://packagist.org/packages/ronu/payment-gateways).
@@ -356,6 +357,8 @@ ledger y outbox juntos. También incluye workers de recuperación, refunds con r
 `ronu/payment-orchestration`. Guía y migración: [docs/orquestacion.md](docs/orquestacion.md).
 
 ## ⚠️ Límites conocidos
+
+- **Orquestación fuera del emulador: solo Mercado Pago Checkout Pro** (`environment` `sandbox` o `live`). Configuración, reglas y paso a producción: [docs/cuenta-real-mercadopago.md](docs/cuenta-real-mercadopago.md).
 
 - **El emulador no tiene Checkout Pro ni Checkout Sessions.** Con `environment: emulator`,
   `createCheckout()` de Mercado Pago y Stripe usa las páginas propias de Plaza y Vector.

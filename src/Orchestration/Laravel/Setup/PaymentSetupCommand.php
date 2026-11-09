@@ -187,7 +187,7 @@ final class PaymentSetupCommand extends Command
                     $report->add('webhook', 'skipped', 'Verificar acceso desde el worker a '.$baseUrl.'/client/payments/webhooks/<cuenta>; el scheduler debe estar ejecutándose.');
                 }
             } else {
-                $report->add('emulator', 'skipped', 'Sin --emulator: transporte real de orquestación todavía no disponible; comprobar credenciales por cuenta.');
+                $report->add('emulator', 'skipped', 'Sin --emulator: no se provisiona nada en el emulador. Las cuentas con environment sandbox o live (Mercado Pago Checkout Pro) usan sus credenciales reales; verificarlas por cuenta.');
             }
             $partner = (new PartnerClientProvisioner($clients, $database, $app['config']->get('app-context.client_repository', []), $app->storagePath('app/payments/partner-clients.php')))
                 ->provision($code, $tenant, PartnerClientProvisioner::capabilities(array_keys($accounts), (bool) ($config['refunds_enabled'] ?? false)), $dryRun);
