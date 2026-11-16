@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace Ronu\PaymentGateways\Orchestration;
 
 use Ronu\PaymentGateways\{Capability, Money, Refund};
-use Ronu\PaymentGateways\Orchestration\Contracts\{AccountResolver, RefundEvidenceReader};
+use Ronu\PaymentGateways\Orchestration\Contracts\{AccountResolver, FailureReporter, RefundEvidenceReader};
 
 /** HTTP actions refund/refundShow exist since 0.4.0; new refund writes stay disabled unless the consumer sets refunds_enabled. */
 final class RefundCoordinator
 {
-    public function __construct(private PostgresStore $store, private AccountResolver $accounts, private RefundEvidenceReader $reader, private bool $acceptNew = false)
+    public function __construct(private PostgresStore $store, private AccountResolver $accounts, private RefundEvidenceReader $reader, private bool $acceptNew = false, private ?FailureReporter $failures = null)
     {
     }
 
@@ -85,8 +85,13 @@ final class RefundCoordinator
             try {
                 $evidence = ProviderView::refund($account, $intent['provider_id'], $amount, $refund['remote_key']);
                 $this->apply($refund, $intent, $evidence);
-            } catch (\Throwable) {
+            } catch (\Throwable $error) {
                 $this->store->markRefundUncertain($refund['reference']);
+                // After the commit: the trace must never decide the state.
+                try {
+                    $this->failures?->report(FailureReporter::REFUND, $error, ['operation' => $refund['reference'], 'intent' => $intent['reference'], 'account' => $intent['account_alias']]);
+                } catch (\Throwable) {
+                }
             }
         }
         return $this->store->refundOperation($refund['reference']) ?? throw new PaymentError('not_found', 404);

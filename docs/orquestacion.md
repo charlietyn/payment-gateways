@@ -79,6 +79,46 @@ concurrente puede reordenarlos. Los payloads no llevan IDs del proveedor ni cuer
   transacción; `PREPARED` nunca se envía desde el worker.
 - Un elemento se agota tras **ocho** intentos fallidos y se queda donde está: no se mueve ni se borra.
 
+## Fallos que no se lanzan
+
+La orquestación nunca deja escapar un fallo del proveedor: reintentar un cobro incierto es peor que
+esperar. El precio es que el manejador de excepciones de la aplicación no se entera. Desde
+`0.9.0-alpha.2` cada uno deja rastro:
+
+| Etapa      | Qué pasó                                                             | Qué recibe quien llama                   |
+| ---------- | -------------------------------------------------------------------- | ---------------------------------------- |
+| `checkout` | El checkout se envió y el resultado es incierto                      | `202`, `operationState: UNKNOWN`         |
+| `refund`   | El refund se envió y el resultado es incierto                        | `202`, `operationState: UNKNOWN`         |
+| `request`  | Una acción HTTP falló de forma inesperada (base, adaptador, proveedor) | `503`, `error: payment_unavailable`    |
+
+- `Contracts\FailureReporter::report($stage, $error, $context)` es el puerto. `$context` lleva sólo
+  identificadores: `operation`, `intent`, `account` o `route`.
+- Se llama después de confirmar el estado en la base y una sola vez por envío: repetir la petición con
+  la misma clave responde desde el almacenamiento y no vuelve a reportar.
+- Un reporter que lanza se ignora.
+
+En Laravel no hay que configurar nada. `PaymentRuntime` usa `Laravel\FailureReporting`, que:
+
+1. escribe `payments: {stage} failed ({exception})` en el log de la aplicación (canal
+   `payment-gateways.log_channel` si está definido), con la clase de la excepción, archivo y línea, y
+   los campos de `GatewayException` (`retryable`, `status`, `provider_code`). Nunca el mensaje de una
+   excepción ajena;
+2. despacha `Laravel\Events\PaymentFailureReported`.
+
+Para que el fallo llegue al manejador de excepciones de la aplicación (Sentry, tabla de errores…):
+
+```php
+use Ronu\PaymentGateways\Orchestration\Laravel\Events\PaymentFailureReported;
+
+Event::listen(PaymentFailureReported::class, fn (PaymentFailureReported $event) => report($event->error));
+```
+
+Además, las llamadas al proveedor se registran una por línea (`payment-gateways: {gateway} {method}
+{path} …`), sin cabeceras ni cuerpos.
+
+Fuera de Laravel, pasa tu propio `FailureReporter` como último argumento de `Coordinator` y
+`RefundCoordinator`.
+
 ## Operación (Laravel)
 
 `Orchestration\Laravel\PaymentServiceProvider` se registra **explícitamente**; no se autodescubre. Comandos

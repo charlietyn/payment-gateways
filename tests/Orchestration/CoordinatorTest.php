@@ -16,7 +16,7 @@ use Ronu\PaymentGateways\Orchestration\Contracts\FinancialEventConsumer;
 use Ronu\PaymentGateways\Orchestration\{DisputeCoordinator, DisputeEvidence};
 use Ronu\PaymentGateways\Orchestration\Contracts\DisputeEvidenceReader;
 use Ronu\PaymentGateways\{Refund, Capability};
-use Ronu\PaymentGateways\Orchestration\Contracts\{AccountResolver, SubjectResolver, Fulfillment};
+use Ronu\PaymentGateways\Orchestration\Contracts\{AccountResolver, FailureReporter, SubjectResolver, Fulfillment};
 
 final class FixtureAccounts implements AccountResolver
 {
@@ -35,6 +35,23 @@ final class FixtureAccounts implements AccountResolver
             throw new PaymentError('account_identity_changed', 503);
         }
         return $account;
+    }
+}
+
+final class RecordingFailures implements FailureReporter
+{
+    /** @var list<array{0: string, 1: \Throwable, 2: array<string, string>, 3: mixed}> */
+    public array $reports = [];
+    /** @param \Closure(array<string, string>): mixed $observe What the durable state is at the moment of the report. */
+    public function __construct(private \Closure $observe, private bool $throws = false)
+    {
+    }
+    public function report(string $stage, \Throwable $error, array $context = []): void
+    {
+        $this->reports[] = [$stage, $error, $context, ($this->observe)($context)];
+        if ($this->throws) {
+            throw new \LogicException('reporter failed');
+        }
     }
 }
 
@@ -253,6 +270,47 @@ final class CoordinatorTest extends TestCase
             }
         }
         self::assertSame(1, $this->posts);
+    }
+
+    public function test_an_uncertain_checkout_is_reported_once_after_the_state_is_durable(): void
+    {
+        $failure = new \RuntimeException('transport may contain a secret');
+        $this->remote = fn () => throw $failure;
+        $failures = new RecordingFailures(fn (array $context) => [$this->db->inTransaction(), $this->store->operation($context['operation'])['state']], throws: true);
+        $this->coordinator = new Coordinator($this->store, $this->subjects, $this->accounts, fn () => 1000, $failures);
+
+        $first = $this->start();
+
+        // A reporter that throws changes neither the answer nor the stored state.
+        self::assertSame(['UNKNOWN', 202], [$first['operationState'], $first['httpStatus']]);
+        self::assertCount(1, $failures->reports);
+        [$stage, $error, $context, $observed] = $failures->reports[0];
+        self::assertSame([FailureReporter::CHECKOUT, $failure], [$stage, $error]);
+        self::assertSame(['operation' => $first['operationReference'], 'intent' => $first['reference'], 'account' => 'a'], $context);
+        self::assertSame([false, 'UNKNOWN'], $observed);
+        // The replay answers from storage: nothing is sent, so nothing is reported again.
+        self::assertSame($first, $this->start());
+        self::assertCount(1, $failures->reports);
+    }
+
+    public function test_an_uncertain_refund_is_reported_after_the_reservation_is_marked(): void
+    {
+        $this->remote = fn (CreatePayment $request) => $this->payment($request->reference, PaymentStatus::Captured);
+        $intent = $this->start();
+        $actor = new Actor('invoices', 'tenant-a', 'buyer-a', ['a'], ['refund','read']);
+        $this->gateway->method('supports')->with(Capability::PartialRefund)->willReturn(true);
+        $failure = new \RuntimeException('Timeout after remote acceptance');
+        $this->gateway->expects(self::once())->method('refund')->willThrowException($failure);
+        $failures = new RecordingFailures(fn (array $context) => $this->store->refundOperation($context['operation'])['state']);
+        $service = new RefundCoordinator($this->store, $this->accounts, $this->createMock(RefundEvidenceReader::class), true, $failures);
+
+        $first = $service->request($actor, $intent['reference'], new Money(8000, 'ARS'), 'refund-reported');
+
+        self::assertSame('UNKNOWN', $first['operationState']);
+        self::assertCount(1, $failures->reports);
+        [$stage, $error, $context, $observed] = $failures->reports[0];
+        self::assertSame([FailureReporter::REFUND, $failure, 'UNKNOWN'], [$stage, $error, $observed]);
+        self::assertSame(['operation' => $first['operationReference'], 'intent' => $intent['reference'], 'account' => 'a'], $context);
     }
 
     public function test_timeout_is_durable_unknown_and_process_reconstruction_never_reposts(): void

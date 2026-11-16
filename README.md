@@ -18,7 +18,9 @@ Mercado Pago · Stripe · PayPal — el mismo código, en el emulador y en produ
 
 </div>
 
-La versión **0.9.0-alpha.1** añade cuentas reales de Mercado Pago Checkout Pro (`environment` `sandbox` o
+La versión **0.9.0-alpha.2** deja rastro de los fallos que la orquestación responde en lugar de lanzar
+(log y evento `PaymentFailureReported`): [docs/orquestacion.md](docs/orquestacion.md#fallos-que-no-se-lanzan).
+La **0.9.0-alpha.1** añadió cuentas reales de Mercado Pago Checkout Pro (`environment` `sandbox` o
 `live`) a la orquestación: [docs/cuenta-real-mercadopago.md](docs/cuenta-real-mercadopago.md).
 [`payments:setup`](docs/setup-local.md) prepara el partner y las cuentas del emulador local sin editar
 configuración generada. La apertura de ventas requiere `--emulator` explícito y un entorno distinto de producción.
@@ -45,7 +47,7 @@ configuración generada. La apertura de ventas requiere `--emulator` explícito 
 ## 📦 Instalar
 
 ```bash
-composer require ronu/payment-gateways:0.9.0-alpha.1
+composer require ronu/payment-gateways:0.9.0-alpha.2
 ```
 
 Disponible en [Packagist](https://packagist.org/packages/ronu/payment-gateways).

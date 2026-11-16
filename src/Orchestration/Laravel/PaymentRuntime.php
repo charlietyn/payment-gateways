@@ -5,7 +5,13 @@ declare(strict_types=1);
 namespace Ronu\PaymentGateways\Orchestration\Laravel;
 
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\DatabaseManager;
+use GuzzleHttp\ClientInterface;
+use Psr\Log\{LoggerInterface, NullLogger};
+use Ronu\PaymentGateways\Laravel\PaymentGatewaysServiceProvider;
+use Ronu\PaymentGateways\Orchestration\Contracts\FailureReporter;
+use Ronu\PaymentGateways\Services;
 use Ronu\PaymentGateways\Orchestration\{Coordinator, DisputeCoordinator, GatewayDisputeEvidenceReader, GatewayRefundEvidenceReader, PaymentError, PostgresStore, RecoveryWorker, RefundCoordinator};
 
 /** Lazy wiring: discovery, route listing and config cache do not connect or call providers. */
@@ -42,7 +48,32 @@ final class PaymentRuntime
 
     public function accounts(): ConfiguredAccounts
     {
-        return new ConfiguredAccounts($this->configuration);
+        return new ConfiguredAccounts($this->configuration, $this->services());
+    }
+
+    /** Log line and event for the failures the orchestration answers instead of throwing. */
+    public function failures(): FailureReporter
+    {
+        $events = $this->container->bound('events') ? $this->container->make('events') : null;
+        return new FailureReporting($this->logger(), $events instanceof Dispatcher ? $events : null);
+    }
+
+    /** Same HTTP client binding and log channel as the gateway facade: one line per provider call. */
+    private function services(): Services
+    {
+        $http = $this->container->bound(PaymentGatewaysServiceProvider::HTTP) ? $this->container->make(PaymentGatewaysServiceProvider::HTTP) : null;
+        return new Services(http: $http instanceof ClientInterface ? $http : null, logger: $this->logger());
+    }
+
+    private function logger(): LoggerInterface
+    {
+        if (!$this->container->bound('log')) {
+            return new NullLogger();
+        }
+        $log = $this->container->make('log');
+        $channel = $this->container->bound('config') ? $this->container->make('config')->get('payment-gateways.log_channel') : null;
+        $logger = is_object($log) && is_string($channel) && $channel !== '' && method_exists($log, 'channel') ? $log->channel($channel) : $log;
+        return $logger instanceof LoggerInterface ? $logger : new NullLogger();
     }
     public function coordinator(): Coordinator
     {
@@ -58,7 +89,7 @@ final class PaymentRuntime
                 return $this->adapter->resolve($actor, $subject);
             }
         };
-        return new Coordinator($this->store(), $subjects, $this->accounts(), fn () => time());
+        return new Coordinator($this->store(), $subjects, $this->accounts(), fn () => time(), $this->failures());
     }
     public function disputes(): DisputeCoordinator
     {
@@ -71,7 +102,7 @@ final class PaymentRuntime
     public function refunds(): RefundCoordinator
     {
         // New refund writes need an explicit consumer decision; reads and recovery never do.
-        return new RefundCoordinator($this->store(), $this->accounts(), new GatewayRefundEvidenceReader(), ($this->configuration['refunds_enabled'] ?? false) === true);
+        return new RefundCoordinator($this->store(), $this->accounts(), new GatewayRefundEvidenceReader(), ($this->configuration['refunds_enabled'] ?? false) === true, $this->failures());
     }
     public function compensations(): \Ronu\PaymentGateways\Orchestration\CompensationCoordinator
     {

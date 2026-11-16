@@ -6,6 +6,7 @@ namespace Ronu\PaymentGateways\Orchestration\Laravel;
 
 use Illuminate\Http\{JsonResponse, Request};
 use Illuminate\Support\Facades\Route;
+use Ronu\PaymentGateways\Orchestration\Contracts\FailureReporter;
 use Ronu\PaymentGateways\Orchestration\PaymentError;
 use Ronu\PaymentGateways\Exceptions\InvalidWebhookSignature;
 
@@ -156,7 +157,11 @@ final class PaymentController
             return new JsonResponse(['error' => 'invalid_signature'], 401, ['Cache-Control' => 'private, no-store']);
         } catch (PaymentError $error) {
             return new JsonResponse(['error' => $error->reason], $error->httpStatus, ['Cache-Control' => 'private, no-store']);
-        } catch (\Throwable) {
+        } catch (\Throwable $error) {
+            try {
+                $this->runtime->failures()->report(FailureReporter::REQUEST, $error, array_filter(['route' => $request->route()?->getName()], 'is_string'));
+            } catch (\Throwable) {
+            }
             // Never expose provider request objects, configuration or SQL even with APP_DEBUG enabled.
             return new JsonResponse(['error' => 'payment_unavailable'], 503, ['Cache-Control' => 'private, no-store']);
         }

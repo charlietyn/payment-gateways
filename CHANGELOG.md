@@ -6,6 +6,30 @@ romper la API, y aquí se dice cómo.
 
 ## [Sin publicar]
 
+## [0.9.0-alpha.2] — 2026-11-16
+
+### Añadido
+
+- **Rastro de los fallos que la orquestación responde en lugar de lanzar.** Un fallo del proveedor
+  durante un checkout o un refund deja la operación en `UNKNOWN`, y un fallo inesperado de una acción
+  HTTP responde `payment_unavailable`. Ninguno llegaba al manejador de excepciones de la aplicación ni
+  a ningún log. Ahora:
+  - `Orchestration\Contracts\FailureReporter` recibe la etapa (`checkout`, `refund`, `request`), la
+    excepción y sólo identificadores (operación, intent, cuenta, ruta). Se llama **después** de
+    confirmar el estado, y un reporter que falla se ignora: el rastro nunca decide el resultado.
+  - En Laravel, `Orchestration\Laravel\FailureReporting` escribe una línea de log
+    (`payments: {stage} failed`) y despacha el evento `Orchestration\Laravel\Events\PaymentFailureReported`.
+    Un listener puede entregarlo al manejador de la aplicación: `report($event->error)`.
+  - Nunca se registra el mensaje de una excepción ajena, sólo su clase, archivo y línea.
+- `Coordinator` y `RefundCoordinator` aceptan un `FailureReporter` opcional como último argumento.
+
+### Corregido
+
+- La orquestación en Laravel construía las cuentas sin logger, así que las llamadas al proveedor
+  (`payment-gateways: … failed`) no se escribían nunca. `PaymentRuntime` les pasa ahora el log de la
+  aplicación, con el canal de `payment-gateways.log_channel`, y el cliente HTTP enlazado en
+  `PaymentGatewaysServiceProvider::HTTP` si existe, igual que la fachada de pasarelas.
+
 ## [0.9.0-alpha.1] — 2026-11-09
 
 ### Añadido

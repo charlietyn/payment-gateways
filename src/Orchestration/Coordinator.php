@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace Ronu\PaymentGateways\Orchestration;
 
 use Ronu\PaymentGateways\{CreatePayment, Money, Payment, PaymentStatus};
-use Ronu\PaymentGateways\Orchestration\Contracts\{AccountResolver, PaymentStore, SubjectResolver};
+use Ronu\PaymentGateways\Orchestration\Contracts\{AccountResolver, FailureReporter, PaymentStore, SubjectResolver};
 
 /** Financial coordination; no product classes, Laravel facades or request globals. */
 final class Coordinator
 {
-    public function __construct(private PaymentStore $store, private SubjectResolver $subjects, private AccountResolver $accounts, private \Closure $clock)
+    public function __construct(private PaymentStore $store, private SubjectResolver $subjects, private AccountResolver $accounts, private \Closure $clock, private ?FailureReporter $failures = null)
     {
     }
 
@@ -104,7 +104,7 @@ final class Coordinator
                 description: $quote->description,
             ));
             $this->apply($intent, $payment, $account, $operation['reference']);
-        } catch (\Throwable) {
+        } catch (\Throwable $error) {
             // Even a malformed 2xx may have charged money. Never turn uncertainty into a retry.
             $this->store->transaction(function () use ($operation): void {
                 $this->store->intent($operation['intent_reference'], true);
@@ -114,6 +114,11 @@ final class Coordinator
                     $this->store->saveOperation($current);
                 }
             });
+            // After the commit: the trace must never decide the state.
+            try {
+                $this->failures?->report(FailureReporter::CHECKOUT, $error, ['operation' => $operation['reference'], 'intent' => $operation['intent_reference'], 'account' => $operation['account_alias']]);
+            } catch (\Throwable) {
+            }
         }
         return $this->operationView($actor, $operation['reference'], 'create');
     }
