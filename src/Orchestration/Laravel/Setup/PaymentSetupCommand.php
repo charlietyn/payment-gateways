@@ -7,6 +7,7 @@ namespace Ronu\PaymentGateways\Orchestration\Laravel\Setup;
 use GuzzleHttp\Client;
 use Illuminate\Console\Command;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Http\Request;
 use Illuminate\Foundation\Application;
@@ -14,6 +15,8 @@ use Ronu\AppContext\Contracts\ClientRepositoryInterface;
 use Ronu\PaymentGateways\Orchestration\Laravel\ConfiguredAccounts;
 use Ronu\PaymentGateways\Orchestration\Laravel\PaymentRuntime;
 use Ronu\PaymentGateways\Orchestration\PaymentError;
+use Ronu\PaymentGateways\Orchestration\Laravel\ProductAdapter;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 final class PaymentSetupCommand extends Command
 {
@@ -60,6 +63,14 @@ final class PaymentSetupCommand extends Command
                 }
             }
             $config['tables'] = $tables;
+            // El adaptador de producto suele ser código del proyecto: nombrar la clase que falta.
+            $adapterClass = $config['adapter'] ?? null;
+            if (!is_string($adapterClass) || $adapterClass === '' || !class_exists($adapterClass)) {
+                throw new SetupFailure('product_adapter_class_missing:'.(is_string($adapterClass) ? $adapterClass : ''));
+            }
+            if (!is_subclass_of($adapterClass, ProductAdapter::class)) {
+                throw new SetupFailure('product_adapter_invalid:'.$adapterClass);
+            }
             if (!$runtime->adapter()->ready()) {
                 throw new SetupFailure('adapter_not_ready');
             }
@@ -76,8 +87,7 @@ final class PaymentSetupCommand extends Command
                 if (!preg_match('/^[a-z][a-z0-9_-]{0,62}$/D', $alias)) {
                     throw new SetupFailure('invalid_account_alias');
                 }
-                $route = $app['router']->getRoutes()->match(Request::create($baseUrl.'/client/payments/webhooks/'.$alias, 'POST'));
-                if (!str_ends_with($route->getActionName(), 'PaymentController@webhook')) {
+                if (!$this->webhookRegistered($app, $baseUrl, $alias)) {
                     throw new SetupFailure('payment_webhook_not_registered');
                 }
                 // Valida la estructura e identidad sin necesitar credenciales todavía.
@@ -228,8 +238,13 @@ final class PaymentSetupCommand extends Command
             $report->add('setup', 'failed', $error->getMessage());
         } catch (PaymentError $error) {
             $report->add('setup', 'failed', $error->reason);
-        } catch (\Throwable) {
-            $report->add('setup', 'failed', 'setup_unavailable_check_configuration');
+        } catch (QueryException|\PDOException $error) {
+            $this->trace($error);
+            $report->add('setup', 'failed', 'database_unavailable_check_connection');
+        } catch (\Throwable $error) {
+            // Nunca el mensaje de una excepción ajena (puede llevar datos), solo su clase; el detalle va al log.
+            $this->trace($error);
+            $report->add('setup', 'failed', 'setup_unavailable_check_configuration:'.(new \ReflectionClass($error))->getShortName());
         } finally {
             if (is_resource($lock)) {
                 flock($lock, LOCK_UN);
@@ -244,6 +259,38 @@ final class PaymentSetupCommand extends Command
             }
         }
         return $report->failed() ? self::FAILURE : self::SUCCESS;
+    }
+
+    /**
+     * Las rutas de Laravel no incluyen el subdirectorio donde se publica la aplicación
+     * (APP_URL=http://localhost/eros), así que la ruta se busca sin él.
+     */
+    private function webhookRegistered(Application $app, string $baseUrl, string $alias): bool
+    {
+        $origin = parse_url($baseUrl, PHP_URL_SCHEME).'://'.parse_url($baseUrl, PHP_URL_HOST);
+        $port = parse_url($baseUrl, PHP_URL_PORT);
+        if ($port !== null) {
+            $origin .= ':'.$port;
+        }
+        try {
+            $route = $app['router']->getRoutes()->match(Request::create($origin.'/client/payments/webhooks/'.$alias, 'POST'));
+        } catch (HttpExceptionInterface) {
+            return false;
+        }
+        return str_ends_with($route->getActionName(), 'PaymentController@webhook');
+    }
+
+    /** Rastro sin mensaje: clase, archivo y línea, como FailureReporting. */
+    private function trace(\Throwable $error): void
+    {
+        try {
+            $app = $this->getLaravel();
+            if ($app->bound('log')) {
+                $app->make('log')->error('payments: setup failed', ['exception' => $error::class, 'file' => $error->getFile(), 'line' => $error->getLine()]);
+            }
+        } catch (\Throwable) {
+            // El rastro nunca decide el resultado.
+        }
     }
 
     private function text(string $name): string

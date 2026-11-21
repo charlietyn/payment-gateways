@@ -6,6 +6,23 @@ romper la API, y aquí se dice cómo.
 
 ## [Sin publicar]
 
+## [0.9.0-alpha.3] — 2026-11-21
+
+### Corregido
+
+- **`payments:setup` ya no esconde la causa de un fallo.** Todo error inesperado se convertía en
+  `setup_unavailable_check_configuration`, sin más. Ahora:
+  - un error de la base de datos es `database_unavailable_check_connection`;
+  - una clase de `payments.adapter` que no existe es `product_adapter_class_missing:<clase>`, y una que no
+    implementa `ProductAdapter`, `product_adapter_invalid:<clase>`;
+  - cualquier otro lleva la clase de la excepción (`setup_unavailable_check_configuration:<Clase>`) y deja
+    en el log `payments: setup failed` con clase, archivo y línea. Nunca el mensaje.
+- La comprobación del webhook fallaba con un `APP_URL` publicado en un subdirectorio
+  (`http://localhost/eros`): buscaba la ruta con ese prefijo, Laravel lanzaba `NotFoundHttpException` y el
+  setup respondía el error genérico. La ruta se busca ahora sin el subdirectorio, y una ruta que no existe
+  es `payment_webhook_not_registered`.
+- Guía: «Si el setup falla» en `docs/setup-local.md`.
+
 ## [0.9.0-alpha.2] — 2026-11-16
 
 ### Añadido

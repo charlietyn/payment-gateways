@@ -1,4 +1,4 @@
-# Setup local de pagos — 0.8.0-alpha.3
+# Setup local de pagos — 0.9.0-alpha.3
 
 `payments:setup` pertenece a esta biblioteca. El generador configura sus nombres de variables y los
 scripts de arranque; el producto conserva su adaptador y sus datos de negocio. El comando no migra,
@@ -86,6 +86,22 @@ Una clave preexistente del front se verifica contra el hash del partner; no se s
   Restaurar las credenciales originales desde el almacén privado; el setup nunca rota por conveniencia.
 - Después de cambiar variables o clientes, reiniciar los procesos consumidores para que relean su
   configuración. La provisión no implica que el webhook sea alcanzable desde otro contenedor/host.
+
+## Si el setup falla
+
+Cada fallo es un paso `setup: failed (<motivo>)`. El comando no ejecuta migraciones ni corrige nada: el
+motivo dice qué revisar, y la causa de un fallo inesperado queda en el log de la aplicación
+(`payments: setup failed`, con clase, archivo y línea; nunca el mensaje).
+
+| Motivo | Qué pasa | Qué hacer |
+| --- | --- | --- |
+| `database_unavailable_check_connection` | No se puede consultar la conexión de pagos | Revisar `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD` y que el servidor esté arrancado |
+| `payment_tables_not_migrated` | Faltan las tablas de pagos | `php artisan migrate` (el setup nunca migra) |
+| `product_adapter_class_missing:<clase>` | `payments.adapter` nombra una clase que no existe | Añadir el código del adaptador de producto al proyecto y `composer dump-autoload` |
+| `product_adapter_invalid:<clase>` | La clase no implementa `ProductAdapter` | Corregir la clase |
+| `adapter_not_ready` | El adaptador existe pero su configuración no es válida | Ver el log: el adaptador lista sus problemas |
+| `payment_webhook_not_registered` | No hay ruta `POST client/payments/webhooks/<cuenta>` | Registrar las rutas de pagos; un subdirectorio en `APP_URL` (`http://localhost/app`) ya no influye |
+| `setup_unavailable_check_configuration:<Clase>` | Excepción inesperada | Buscar `payments: setup failed` en `storage/logs` |
 
 ## Validación
 
