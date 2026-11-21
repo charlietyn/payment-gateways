@@ -6,6 +6,19 @@ romper la API, y aquí se dice cómo.
 
 ## [Sin publicar]
 
+## [0.8.0-alpha.4] — 2026-11-21
+
+### Corregido
+
+- **`payments:setup` ya no esconde la causa de un fallo** (backport de 0.9.0-alpha.3). Un error de base
+  de datos es `database_unavailable_check_connection`; una clase de `payments.adapter` que no existe,
+  `product_adapter_class_missing:<clase>` (o `product_adapter_invalid:<clase>`); cualquier otro lleva la
+  clase de la excepción (`setup_unavailable_check_configuration:<Clase>`) y deja en el log
+  `payments: setup failed` con clase, archivo y línea, nunca el mensaje.
+- La ruta del webhook se busca sin el subdirectorio de `APP_URL` (`http://localhost/eros`); una ruta que
+  no existe es `payment_webhook_not_registered`.
+- Guía: «Si el setup falla» en `docs/setup-local.md`.
+
 ## [0.8.0-alpha.3] — 2026-11-04
 
 ### Corregido

@@ -390,6 +390,50 @@ final class PaymentSetupTest extends TestCase
         self::assertStringContainsString('account_identity_changed:mp', $output);
     }
 
+    public function test_command_finds_the_webhook_when_app_url_has_a_subdirectory(): void
+    {
+        $this->app['config']->set('app.url', 'http://localhost/demo');
+        [$code, $output] = $this->command(['--dry-run' => true]);
+        self::assertSame(0, $code, $output);
+    }
+
+    public function test_command_names_an_unregistered_webhook_instead_of_a_generic_failure(): void
+    {
+        $this->app->instance('router', new Router($this->app['events'], $this->app));
+        [$code, $output] = $this->command(['--dry-run' => true]);
+        self::assertSame(1, $code);
+        self::assertStringContainsString('payment_webhook_not_registered', $output);
+    }
+
+    public function test_command_names_a_missing_product_adapter_class(): void
+    {
+        $this->app['config']->set('payments.adapter', 'App\Payments\Missing\BookingAdapter');
+        [$code, $output] = $this->command(['--dry-run' => true]);
+        self::assertSame(1, $code);
+        self::assertSame('product_adapter_class_missing:App\Payments\Missing\BookingAdapter', json_decode($output, true, 64, JSON_THROW_ON_ERROR)['steps'][0]['reason']);
+    }
+
+    public function test_command_reports_an_unreachable_database_without_its_message(): void
+    {
+        file_put_contents($this->root.'/broken.sqlite', str_repeat('not a database ', 100));
+        $this->capsule->addConnection(['driver' => 'sqlite', 'database' => $this->root.'/broken.sqlite', 'prefix' => ''], 'broken');
+        $this->app['config']->set('payments.connection', 'broken');
+        [$code, $output] = $this->command(['--dry-run' => true]);
+        self::assertSame(1, $code);
+        self::assertStringContainsString('database_unavailable_check_connection', $output);
+        self::assertStringNotContainsString('SQLSTATE', $output);
+        $this->capsule->getDatabaseManager()->disconnect('broken');
+    }
+
+    public function test_command_names_the_class_of_an_unexpected_failure(): void
+    {
+        $this->app->bind(\Illuminate\Console\Scheduling\Schedule::class, static fn () => throw new \LogicException('secret detail'));
+        [$code, $output] = $this->command(['--dry-run' => true]);
+        self::assertSame(1, $code);
+        self::assertStringContainsString('setup_unavailable_check_configuration:LogicException', $output);
+        self::assertStringNotContainsString('secret detail', $output);
+    }
+
     public function test_command_rejects_invalid_structured_table_before_writes(): void
     {
         $this->app['config']->set('payments.tables.intents', ['schema' => 'main', 'table' => 'intents; DELETE']);
