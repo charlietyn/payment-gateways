@@ -6,6 +6,14 @@ romper la API, y aquí se dice cómo.
 
 ## [Sin publicar]
 
+## [0.8.0-alpha.6] — 2026-11-22
+
+### Corregido
+
+- **Una base que no existe ya no se lee como «servidor inalcanzable»** (backport de 0.9.0-alpha.5). PostgreSQL responde
+  `08006` también en ese caso, y el clasificador lo enviaba a `database_unreachable_check_host`. Ahora es
+  `database_missing_check_name` (también MySQL 1049 y SQL Server 4060); una tabla inexistente no cuenta.
+
 ## [0.8.0-alpha.5] — 2026-11-22
 
 ### Corregido

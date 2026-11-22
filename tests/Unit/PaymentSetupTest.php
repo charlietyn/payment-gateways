@@ -445,6 +445,9 @@ final class PaymentSetupTest extends TestCase
         yield 'mysql acceso denegado' => [$pdo('HY000', 1045, "Access denied for user 'root'@'localhost' (using password: NO)"), DatabaseFailure::CREDENTIALS];
         yield 'mysql puerto cerrado' => [$pdo('HY000', 2002, 'No connection could be made because the target machine actively refused it'), DatabaseFailure::UNREACHABLE];
         yield 'sqlsrv login' => [$pdo('28000', 18456, "Login failed for user 'sa'."), DatabaseFailure::CREDENTIALS];
+        yield 'pgsql base inexistente' => [$pdo('08006', 7, 'connection to server failed: FATAL:  database "eros_x" does not exist'), DatabaseFailure::MISSING];
+        yield 'mysql base inexistente' => [$pdo('HY000', 1049, "Unknown database 'eros_x'"), DatabaseFailure::MISSING];
+        yield 'tabla inexistente no es base inexistente' => [$pdo('42P01', 7, 'relation "payments.intents" does not exist'), DatabaseFailure::UNAVAILABLE];
         yield 'error de consulta' => [$pdo('42501', 7, 'permission denied for schema payments'), DatabaseFailure::UNAVAILABLE];
         yield 'envuelto en QueryException' => [new \Illuminate\Database\QueryException('db', 'select 1', [], $pdo('08006', 7, 'fe_sendauth: no password supplied')), DatabaseFailure::CREDENTIALS];
     }

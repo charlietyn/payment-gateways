@@ -17,6 +17,8 @@ final class DatabaseFailure
 
     public const UNREACHABLE = 'database_unreachable_check_host';
 
+    public const MISSING = 'database_missing_check_name';
+
     public const UNAVAILABLE = 'database_unavailable_check_connection';
 
     /** MySQL 1045/1698 y SQL Server 18456: acceso denegado. */
@@ -38,6 +40,10 @@ final class DatabaseFailure
             if (str_contains($text, $needle)) {
                 return self::CREDENTIALS;
             }
+        }
+        // PostgreSQL vuelve a responder 08006: el nombre de la base es lo único que lo distingue.
+        if ($state === '3D000' || in_array($code, [1049, 4060], true) || preg_match('/database "[^"]*" does not exist/', $text) === 1) {
+            return self::MISSING;
         }
         if (str_starts_with($state, '08') || in_array($code, self::UNREACHABLE_CODES, true)) {
             return self::UNREACHABLE;
