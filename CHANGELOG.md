@@ -6,6 +6,20 @@ romper la API, y aquí se dice cómo.
 
 ## [Sin publicar]
 
+## [0.9.0-alpha.4] — 2026-11-22
+
+### Corregido
+
+- **`payments:setup` distingue por qué no llega a la base de datos.** Todo error de base era
+  `database_unavailable_check_connection`, y un `.env` con `DB_PASSWORD` vacío se leía como «servidor
+  caído». PostgreSQL responde `08006` en ambos casos, así que el SQLSTATE no basta; ahora:
+  - usuario o contraseña rechazados (incluido `fe_sendauth: no password supplied`) es
+    `database_credentials_rejected_check_password`;
+  - nadie escucha en ese host y puerto es `database_unreachable_check_host`;
+  - el resto sigue siendo `database_unavailable_check_connection`.
+- El log `payments: setup failed` lleva además `sqlstate` y `driver_code`, que no contienen datos.
+  El mensaje del driver sigue sin salir nunca.
+
 ## [0.9.0-alpha.3] — 2026-11-21
 
 ### Corregido

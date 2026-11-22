@@ -239,8 +239,8 @@ final class PaymentSetupCommand extends Command
         } catch (PaymentError $error) {
             $report->add('setup', 'failed', $error->reason);
         } catch (QueryException|\PDOException $error) {
-            $this->trace($error);
-            $report->add('setup', 'failed', 'database_unavailable_check_connection');
+            $this->trace($error, DatabaseFailure::trace($error));
+            $report->add('setup', 'failed', DatabaseFailure::reason($error));
         } catch (\Throwable $error) {
             // Nunca el mensaje de una excepción ajena (puede llevar datos), solo su clase; el detalle va al log.
             $this->trace($error);
@@ -281,12 +281,13 @@ final class PaymentSetupCommand extends Command
     }
 
     /** Rastro sin mensaje: clase, archivo y línea, como FailureReporting. */
-    private function trace(\Throwable $error): void
+    /** @param array<string, mixed> $extra solo datos sin contenido (SQLSTATE, códigos) */
+    private function trace(\Throwable $error, array $extra = []): void
     {
         try {
             $app = $this->getLaravel();
             if ($app->bound('log')) {
-                $app->make('log')->error('payments: setup failed', ['exception' => $error::class, 'file' => $error->getFile(), 'line' => $error->getLine()]);
+                $app->make('log')->error('payments: setup failed', ['exception' => $error::class, 'file' => $error->getFile(), 'line' => $error->getLine(), ...$extra]);
             }
         } catch (\Throwable) {
             // El rastro nunca decide el resultado.

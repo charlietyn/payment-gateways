@@ -95,7 +95,9 @@ motivo dice qué revisar, y la causa de un fallo inesperado queda en el log de l
 
 | Motivo | Qué pasa | Qué hacer |
 | --- | --- | --- |
-| `database_unavailable_check_connection` | No se puede consultar la conexión de pagos | Revisar `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD` y que el servidor esté arrancado |
+| `database_credentials_rejected_check_password` | El servidor rechaza el usuario o la contraseña (también «no password supplied» de PostgreSQL) | Revisar `DB_USERNAME` y `DB_PASSWORD`; un `.env` copiado de `.env.example` la trae vacía |
+| `database_unreachable_check_host` | Nadie responde en ese host y puerto | Revisar `DB_HOST`, `DB_PORT` y que el servidor esté arrancado |
+| `database_unavailable_check_connection` | Otro error de la base (permisos, base inexistente, fichero dañado) | Buscar `payments: setup failed` en el log: lleva `sqlstate` y `driver_code` |
 | `payment_tables_not_migrated` | Faltan las tablas de pagos | `php artisan migrate` (el setup nunca migra) |
 | `product_adapter_class_missing:<clase>` | `payments.adapter` nombra una clase que no existe | Añadir el código del adaptador de producto al proyecto y `composer dump-autoload` |
 | `product_adapter_invalid:<clase>` | La clase no implementa `ProductAdapter` | Corregir la clase |
