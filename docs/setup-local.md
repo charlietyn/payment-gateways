@@ -96,6 +96,7 @@ motivo dice qué revisar, y la causa de un fallo inesperado queda en el log de l
 | Motivo | Qué pasa | Qué hacer |
 | --- | --- | --- |
 | `database_credentials_rejected_check_password` | El servidor rechaza el usuario o la contraseña (también «no password supplied» de PostgreSQL) | Revisar `DB_USERNAME` y `DB_PASSWORD`; un `.env` copiado de `.env.example` la trae vacía |
+| `database_missing_check_name` | El servidor responde, pero la base no existe | Crear la base o corregir `DB_DATABASE` |
 | `database_unreachable_check_host` | Nadie responde en ese host y puerto | Revisar `DB_HOST`, `DB_PORT` y que el servidor esté arrancado |
 | `database_unavailable_check_connection` | Otro error de la base (permisos, base inexistente, fichero dañado) | Buscar `payments: setup failed` en el log: lleva `sqlstate` y `driver_code` |
 | `payment_tables_not_migrated` | Faltan las tablas de pagos | `php artisan migrate` (el setup nunca migra) |
