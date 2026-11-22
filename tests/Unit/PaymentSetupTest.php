@@ -26,6 +26,7 @@ use Ronu\PaymentGateways\Orchestration\Laravel\ConfiguredAccounts;
 use Ronu\PaymentGateways\Orchestration\Laravel\PaymentController;
 use Ronu\PaymentGateways\Orchestration\Laravel\PaymentRuntime;
 use Ronu\PaymentGateways\Orchestration\Laravel\ProductAdapter;
+use Ronu\PaymentGateways\Orchestration\Laravel\Setup\DatabaseFailure;
 use Ronu\PaymentGateways\Orchestration\Laravel\Setup\EmulatorProvisioner;
 use Ronu\PaymentGateways\Orchestration\Laravel\Setup\EnvFile;
 use Ronu\PaymentGateways\Orchestration\Laravel\Setup\PartnerClientProvisioner;
@@ -423,6 +424,38 @@ final class PaymentSetupTest extends TestCase
         self::assertStringContainsString('database_unavailable_check_connection', $output);
         self::assertStringNotContainsString('SQLSTATE', $output);
         $this->capsule->getDatabaseManager()->disconnect('broken');
+    }
+
+    /**
+     * Formas medidas contra PostgreSQL 16 y MySQL reales: PostgreSQL da 08006 también cuando
+     * rechaza la contraseña, así que el SQLSTATE solo no distingue credenciales de servidor caído.
+     *
+     * @return iterable<string, array{0: \Throwable, 1: string}>
+     */
+    public static function databaseFailures(): iterable
+    {
+        $pdo = static function (string $state, int $code, string $text): \PDOException {
+            $error = new \PDOException('SQLSTATE['.$state.'] ['.$code.'] '.$text);
+            $error->errorInfo = [$state, $code, $text];
+            return $error;
+        };
+        yield 'pgsql sin contraseña' => [$pdo('08006', 7, 'connection to server at "localhost" (::1), port 5434 failed: fe_sendauth: no password supplied'), DatabaseFailure::CREDENTIALS];
+        yield 'pgsql contraseña errónea' => [$pdo('08006', 7, 'connection to server failed: FATAL:  password authentication failed for user "postgres"'), DatabaseFailure::CREDENTIALS];
+        yield 'pgsql puerto cerrado' => [$pdo('08006', 7, 'connection to server at "127.0.0.1", port 5999 failed: Connection refused'), DatabaseFailure::UNREACHABLE];
+        yield 'mysql acceso denegado' => [$pdo('HY000', 1045, "Access denied for user 'root'@'localhost' (using password: NO)"), DatabaseFailure::CREDENTIALS];
+        yield 'mysql puerto cerrado' => [$pdo('HY000', 2002, 'No connection could be made because the target machine actively refused it'), DatabaseFailure::UNREACHABLE];
+        yield 'sqlsrv login' => [$pdo('28000', 18456, "Login failed for user 'sa'."), DatabaseFailure::CREDENTIALS];
+        yield 'error de consulta' => [$pdo('42501', 7, 'permission denied for schema payments'), DatabaseFailure::UNAVAILABLE];
+        yield 'envuelto en QueryException' => [new \Illuminate\Database\QueryException('db', 'select 1', [], $pdo('08006', 7, 'fe_sendauth: no password supplied')), DatabaseFailure::CREDENTIALS];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('databaseFailures')]
+    public function test_database_failure_names_the_cause_without_the_message(\Throwable $error, string $reason): void
+    {
+        self::assertSame($reason, DatabaseFailure::reason($error));
+        $trace = DatabaseFailure::trace($error);
+        self::assertMatchesRegularExpression('/^[0-9A-Z]{5}$/', $trace['sqlstate']);
+        self::assertStringNotContainsString('postgres', json_encode($trace, JSON_THROW_ON_ERROR));
     }
 
     public function test_command_names_the_class_of_an_unexpected_failure(): void
