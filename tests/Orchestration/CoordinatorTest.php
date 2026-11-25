@@ -8,7 +8,7 @@ use PDO;
 use PHPUnit\Framework\TestCase;
 use Ronu\PaymentGateways\Contracts\Gateway;
 use Ronu\PaymentGateways\{CreatePayment, Money, NextAction, Payment, PaymentStatus};
-use Ronu\PaymentGateways\Orchestration\{Account, Actor, CanonicalJson, Coordinator, PaymentError, PostgresStore, Quote, RecoveryWorker, RefundCoordinator};
+use Ronu\PaymentGateways\Orchestration\{Account, Actor, CanonicalJson, Coordinator, Operator, OperatorConsole, PaymentError, PostgresStore, Quote, RecoveryWorker, RefundCoordinator};
 use Ronu\PaymentGateways\Orchestration\Contracts\RefundEvidenceReader;
 use Ronu\PaymentGateways\Orchestration\ExternalRefundCoordinator;
 use Ronu\PaymentGateways\Orchestration\CompensationCoordinator;
@@ -1849,5 +1849,121 @@ final class CoordinatorTest extends TestCase
         $coordinator->checkout($this->actor, 'invoice:own', 'v1', 'a-1');
         $coordinator->checkout($other, 'invoice:own', 'v1', 'b-1');
         self::assertSame(2, $this->posts);
+    }
+    public function test_operators_see_their_tenant_and_accounts_only_and_legacy_history_needs_a_grant(): void
+    {
+        $this->remote = fn (CreatePayment $request) => $this->payment($request->reference, PaymentStatus::Captured);
+        $mine = $this->start();
+        $console = new OperatorConsole($this->store, $this->accounts, false, true);
+        $operator = new Operator('invoices', 'tenant-a', 'user-1', ['a'], ['read']);
+        $listed = $console->list($operator, [], 1, 25);
+        self::assertSame(1, $listed['meta']['total']);
+        self::assertSame($mine['reference'], $listed['data'][0]['reference']);
+        self::assertSame('invoice:uuid-example', $listed['data'][0]['subject']);
+        self::assertSame(1, $console->list($operator, ['state' => 'captured', 'subject' => 'invoice:uuid-example'], 1, 25)['meta']['total']);
+        self::assertSame(0, $console->list($operator, ['state' => 'failed'], 1, 25)['meta']['total']);
+        foreach ([new Operator('invoices', 'tenant-b', 'user-2', ['a'], ['read']), new Operator('other', 'tenant-a', 'user-3', ['a'], ['read']), new Operator('invoices', 'tenant-a', 'user-4', ['b'], ['read'])] as $outsider) {
+            self::assertSame(0, $console->list($outsider, [], 1, 25)['meta']['total']);
+            try {
+                $console->detail($outsider, $mine['reference']);
+                self::fail('Another tenant or account read the payment.');
+            } catch (PaymentError $error) {
+                self::assertSame([404, 'not_found'], [$error->httpStatus, $error->reason]);
+            }
+        }
+        // A pre-0.10 intent: no project/tenant recorded. Visible only with the explicit grant.
+        $this->db->exec("UPDATE intents SET data = data - 'project' - 'tenant'");
+        self::assertSame(0, $console->list($operator, [], 1, 25)['meta']['total']);
+        $historian = new Operator('invoices', 'tenant-a', 'user-1', ['a'], ['read'], legacyHistory: true);
+        self::assertSame(1, $console->list($historian, [], 1, 25)['meta']['total']);
+        self::assertTrue($console->detail($historian, $mine['reference'])['legacy']);
+    }
+
+    public function test_new_intents_record_project_and_tenant_but_never_the_owner(): void
+    {
+        $intent = $this->store->intent($this->start()['reference']);
+        self::assertSame(['invoices', 'tenant-a'], [$intent['project'], $intent['tenant']]);
+        self::assertStringNotContainsString('buyer-a', (string) json_encode($intent));
+    }
+
+    public function test_detail_reports_states_separately_and_actions_follow_effective_capabilities(): void
+    {
+        $this->remote = fn (CreatePayment $request) => $this->payment($request->reference, PaymentStatus::Captured);
+        $intent = $this->start();
+        $this->gateway->method('supports')->with(Capability::PartialRefund)->willReturn(true);
+        $detail = (new OperatorConsole($this->store, $this->accounts, false, true))->detail(new Operator('invoices', 'tenant-a', 'u', ['a'], ['read', 'refund']), $intent['reference']);
+        self::assertSame(['captured', 'pending', 'not_requested'], [$detail['financialState'], $detail['fulfillmentState'], $detail['compensationState']]);
+        self::assertSame(['available' => false, 'reason' => 'refunds_disabled', 'maximum' => null, 'partial' => false], $detail['actions']['refund']);
+        self::assertSame('forbidden', $detail['actions']['reconcile']['reason']);
+        $readOnly = (new OperatorConsole($this->store, $this->accounts, true, true))->detail(new Operator('invoices', 'tenant-a', 'u', ['a'], ['read']), $intent['reference']);
+        self::assertSame('forbidden', $readOnly['actions']['refund']['reason']);
+        $enabled = (new OperatorConsole($this->store, $this->accounts, true, true))->detail(new Operator('invoices', 'tenant-a', 'u', ['a'], ['read', 'refund', 'recover']), $intent['reference']);
+        self::assertSame(['available' => true, 'reason' => null, 'maximum' => '120.00', 'partial' => true], $enabled['actions']['refund']);
+        self::assertSame('not_pending', $enabled['actions']['reconcile']['reason']);
+        $json = (string) json_encode($enabled);
+        foreach (['remote_key', 'request-1', 'merchant', 'buyer-a'] as $secretish) {
+            self::assertStringNotContainsString($secretish, $json);
+        }
+    }
+
+    public function test_operator_refund_keeps_the_payment_scope_is_idempotent_and_attributed(): void
+    {
+        $this->remote = fn (CreatePayment $request) => $this->payment($request->reference, PaymentStatus::Captured);
+        $intent = $this->start();
+        $this->gateway->method('supports')->with(Capability::PartialRefund)->willReturn(true);
+        $this->gateway->expects(self::once())->method('refund')->willReturnCallback(fn ($id, $money) => new Refund('remote-refund', $money, 'approved', $id));
+        $service = new RefundCoordinator($this->store, $this->accounts, $this->createMock(RefundEvidenceReader::class), true);
+        $operator = new Operator('invoices', 'tenant-a', 'user-1', ['a'], ['read', 'refund']);
+        foreach ([new Operator('invoices', 'tenant-a', 'reader', ['a'], ['read']), new Operator('invoices', 'tenant-b', 'other', ['a'], ['read', 'refund'])] as $denied) {
+            try {
+                $service->requestAsOperator($denied, $intent['reference'], new Money(5000, 'ARS'), 'op-1');
+                self::fail('Refund accepted without authorization.');
+            } catch (PaymentError $error) {
+                self::assertContains($error->reason, ['forbidden', 'not_found']);
+            }
+        }
+        $first = $service->requestAsOperator($operator, $intent['reference'], new Money(5000, 'ARS'), 'op-1');
+        self::assertSame(['COMPLETED', 200, '50.00'], [$first['operationState'], $first['httpStatus'], $first['amount']]);
+        self::assertSame($first, $service->requestAsOperator($operator, $intent['reference'], new Money(5000, 'ARS'), 'op-1'));
+        self::assertSame('operator:'.$operator->auditId().':op-1', $this->db->query('SELECT request_key FROM refunds')->fetchColumn());
+        self::assertSame('5000', $this->store->intent($intent['reference'])['refunded_minor']);
+        // The buyer still owns the payment and reads the refund with its own scope.
+        $buyer = new Actor('invoices', 'tenant-a', 'buyer-a', ['a'], ['read']);
+        self::assertSame('COMPLETED', $service->view($buyer, $first['operationReference'])['operationState']);
+        $detail = (new OperatorConsole($this->store, $this->accounts, true, true))->detail($operator, $intent['reference']);
+        self::assertSame('operator', $detail['refunds'][0]['origin']);
+        self::assertSame('70.00', $detail['actions']['refund']['maximum']);
+        $disabled = new RefundCoordinator($this->store, $this->accounts, $this->createMock(RefundEvidenceReader::class), false);
+        try {
+            $disabled->requestAsOperator($operator, $intent['reference'], new Money(100, 'ARS'), 'op-2');
+            self::fail('Refund accepted while disabled.');
+        } catch (PaymentError $error) {
+            self::assertSame('refunds_disabled', $error->reason);
+        }
+    }
+
+    public function test_reconcile_request_brings_pending_work_forward_and_never_resurrects_exhausted_items(): void
+    {
+        $intent = $this->start();
+        $console = new OperatorConsole($this->store, $this->accounts, false, true);
+        $operator = new Operator('invoices', 'tenant-a', 'u', ['a'], ['read', 'recover']);
+        $this->db->exec("UPDATE reconciliation SET reconcile_due = clock_timestamp() + interval '1 hour', reconcile_attempts = 3");
+        self::assertSame(['reference' => $intent['reference'], 'reconciliation' => 'scheduled', 'httpStatus' => 202], $console->requestReconciliation($operator, $intent['reference']));
+        self::assertTrue((bool) $this->db->query('SELECT reconcile_due <= clock_timestamp() AND reconcile_attempts = 3 FROM reconciliation')->fetchColumn());
+        $this->db->exec('UPDATE reconciliation SET reconcile_attempts = 8');
+        try {
+            $console->requestReconciliation($operator, $intent['reference']);
+            self::fail('Exhausted reconciliation was reset from HTTP.');
+        } catch (PaymentError $error) {
+            self::assertSame([409, 'reconciliation_exhausted_requires_review'], [$error->httpStatus, $error->reason]);
+        }
+        self::assertSame(8, (int) $this->db->query('SELECT reconcile_attempts FROM reconciliation')->fetchColumn());
+        self::assertContains('reconciliation_exhausted', array_column($console->detail($operator, $intent['reference'])['incidents'], 'condition'));
+        try {
+            (new OperatorConsole($this->store, $this->accounts, false, false))->requestReconciliation($operator, $intent['reference']);
+            self::fail('Recovery disabled was ignored.');
+        } catch (PaymentError $error) {
+            self::assertSame('recovery_disabled', $error->reason);
+        }
     }
 }

@@ -6,6 +6,41 @@ romper la API, y aquí se dice cómo.
 
 ## [Sin publicar]
 
+## [0.10.0-alpha.1] — 2026-11-25
+
+### Añadido
+
+- **Superficie de administración (back office).** `Orchestration\Laravel\AdminController` con
+  `index` (listado paginado y filtrado por estado financiero, estado de entrega, cuenta, referencia y
+  sujeto), `show` (detalle con operaciones, reembolsos, notificaciones al producto, webhooks,
+  reconciliación, incidencias y acciones efectivas), `refund` + `refundShow` (reembolso de operador) y
+  `reconcile` (adelantar una reconciliación pendiente). Se monta en el canal admin autenticado del
+  proyecto.
+- **`Orchestration\Operator`** y el contrato del proyecto `Orchestration\Laravel\OperatorAdapter`
+  (`config('payments.admin.operator')`). La autorización la decide el adaptador en cada petición, sin
+  depender de un middleware que pueda estar apagado; sin adaptador la API responde `admin_unavailable`
+  (503). Capacidades: `read`, `refund`, `recover`.
+- **`OperatorConsole`**: separa estado financiero, entrega del producto y compensación; las acciones
+  llevan el motivo cuando no están disponibles (`forbidden`, `refunds_disabled`, `not_captured`,
+  `nothing_refundable`, `recovery_disabled`, `not_pending`, `account_identity_changed`).
+- **`RefundCoordinator::requestAsOperator`**: el operador se autoriza por proyecto/tenant/cuenta, nunca
+  suplanta al comprador; el reembolso pertenece al pago igual que uno del cliente y su clave queda
+  atribuida (`operator:<auditId>:<clave>`).
+- Evento `Laravel\Events\OperatorActionRecorded`, despachado tras el commit, para el log de auditoría.
+
+### Cambiado
+
+- Los intents NUEVOS guardan `project` y `tenant` (nunca el comprador). Los anteriores no pueden
+  atribuirse a un tenant: solo los ve un operador con `legacyHistory` concedido expresamente.
+- Reconciliar desde HTTP nunca reinicia intentos: un elemento agotado sigue exigiendo
+  `payments:run replay-exhausted` con actor y evidencia.
+- **`payments:setup`** se detiene con `account_api_env_conflict:<cuenta>` o
+  `account_environment_env_conflict:<cuenta>` si una variable `PAYMENTS_<CUENTA>_API`/`_ENVIRONMENT`
+  contradice la configuración (la familia de API y el entorno son identidad de la cuenta), y con
+  `frontend_env_conflict:<canónica>/<mapeada>` si el front tiene el nombre canónico y el mapeado con
+  valores distintos. El código de partner puede fijarse en `payments.setup.partner`.
+- El puente Laravel admite `laravel/framework` `^12.0 || ^13.0`.
+
 ## [0.9.0-alpha.5] — 2026-11-22
 
 ### Corregido

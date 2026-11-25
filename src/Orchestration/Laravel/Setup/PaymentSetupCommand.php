@@ -92,6 +92,17 @@ final class PaymentSetupCommand extends Command
                 }
                 // Valida la estructura e identidad sin necesitar credenciales todavía.
                 $this->identity($alias, $account);
+                // La familia de API y el entorno son IDENTIDAD de la cuenta: los fija la configuración. Una
+                // variable PAYMENTS_<CUENTA>_API/_ENVIRONMENT que los contradiga (convención de configuraciones
+                // anteriores) no se reinterpreta en silencio: se nombra y se detiene el setup (0.10.0).
+                $prefix = 'PAYMENTS_'.strtoupper(str_replace('-', '_', $alias)).'_';
+                foreach (['API' => $account['api'] ?? null, 'ENVIRONMENT' => $account['environment'] ?? null] as $suffix => $declared) {
+                    $value = getenv($prefix.$suffix);
+                    $value = $value === false ? ($_ENV[$prefix.$suffix] ?? $_SERVER[$prefix.$suffix] ?? null) : $value;
+                    if (is_string($value) && $value !== '' && is_string($declared) && $value !== $declared) {
+                        throw new SetupFailure('account_'.strtolower($suffix).'_env_conflict:'.$alias);
+                    }
+                }
                 $this->guardHistory($database, $config, $alias, $account);
             }
             $report->add('ready', 'unchanged');
@@ -105,7 +116,7 @@ final class PaymentSetupCommand extends Command
                 throw new SetupFailure('floci_setup_value_store_required');
             }
             $store->read();
-            $code = $this->text('partner') ?: preg_replace('/[^A-Za-z0-9_-]/', '-', $project).'-payments';
+            $code = $this->text('partner') ?: (is_string($config['setup']['partner'] ?? null) && $config['setup']['partner'] !== '' ? $config['setup']['partner'] : null) ?: preg_replace('/[^A-Za-z0-9_-]/', '-', $project).'-payments';
             $tenant = $this->text('tenant') ?: $project;
             $frontendPath = $this->text('frontend-env');
             $frontend = $frontendPath === '' ? null : new EnvFile($frontendPath);
@@ -203,6 +214,19 @@ final class PaymentSetupCommand extends Command
                 ->provision($code, $tenant, PartnerClientProvisioner::capabilities(array_keys($accounts), (bool) ($config['refunds_enabled'] ?? false)), $dryRun);
             $report->add('partner', $partner['status'], $dryRun ? 'dry_run' : '');
             $frontMapping = array_replace(['base_url' => 'NUXT_PAYMENTS_API_BASE_URL', 'client_id' => 'NUXT_PAYMENTS_CLIENT_ID', 'api_key' => 'NUXT_PAYMENTS_API_KEY', 'session_secret' => 'NUXT_PAYMENTS_SESSION_SECRET', 'local_actions' => 'NUXT_PAYMENTS_LOCAL_ACTIONS'], $config['setup']['frontend'] ?? []);
+            // A project mapping its own names (an existing front) and the canonical names both present with
+            // different values is two truths: name it instead of writing a third (0.10.0).
+            $canonicalFront = ['base_url' => 'NUXT_PAYMENTS_API_BASE_URL', 'client_id' => 'NUXT_PAYMENTS_CLIENT_ID', 'api_key' => 'NUXT_PAYMENTS_API_KEY'];
+            foreach ($canonicalFront as $field => $canonicalName) {
+                $mapped = $frontMapping[$field];
+                if ($mapped !== $canonicalName && ($frontValues[$mapped] ?? '') !== '' && ($frontValues[$canonicalName] ?? '') !== ''
+                    && $frontValues[$mapped] !== $frontValues[$canonicalName]) {
+                    throw new SetupFailure('frontend_env_conflict:'.$canonicalName.'/'.$mapped);
+                }
+            }
+            if ($frontMapping !== array_replace($frontMapping, $canonicalFront) && $frontend !== null) {
+                $report->add('frontend-names', 'unchanged', 'project_mapping_in_use');
+            }
             if ($frontend !== null && !$dryRun) {
                 $values = [$frontMapping['base_url'] => $baseUrl, $frontMapping['client_id'] => $code];
                 if (strlen($frontValues[$frontMapping['session_secret']] ?? '') < 32) {

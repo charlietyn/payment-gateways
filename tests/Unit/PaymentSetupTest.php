@@ -552,4 +552,44 @@ final class PaymentSetupTest extends TestCase
         self::assertSame('false', $values['PAYMENTS_ACCEPT_NEW']);
         self::assertSame('issued-token', $values['PAYMENTS_MP_ACCESS_TOKEN']);
     }
+    public function test_command_names_an_api_family_env_that_contradicts_the_declared_identity(): void
+    {
+        $this->app['config']->set('payments.accounts.mp', $this->account() + ['api' => 'orders']);
+        $_ENV['PAYMENTS_MP_API'] = 'checkout_pro';
+        try {
+            [$code, $output] = $this->command([]);
+        } finally {
+            unset($_ENV['PAYMENTS_MP_API']);
+        }
+        self::assertSame(1, $code);
+        self::assertStringContainsString('account_api_env_conflict:mp', $output);
+        self::assertDirectoryDoesNotExist($this->root.'/storage/app');
+        $_ENV['PAYMENTS_MP_API'] = 'orders';
+        try {
+            [$code, $output] = $this->command(['--frontend-env' => $this->root.'/front.env']);
+        } finally {
+            unset($_ENV['PAYMENTS_MP_API']);
+        }
+        self::assertSame(0, $code, $output);
+    }
+
+    public function test_command_refuses_two_truths_for_the_frontend_partner_names(): void
+    {
+        $front = $this->root.'/front.env';
+        file_put_contents($front, "NUXT_PAYMENTS_LARAVEL_CLIENT_ID=old-bff\nNUXT_PAYMENTS_CLIENT_ID=other-bff\n");
+        $this->app['config']->set('payments.setup.frontend', ['client_id' => 'NUXT_PAYMENTS_LARAVEL_CLIENT_ID']);
+        [$code, $output] = $this->command(['--frontend-env' => $front]);
+        self::assertSame(1, $code);
+        self::assertStringContainsString('frontend_env_conflict:NUXT_PAYMENTS_CLIENT_ID/NUXT_PAYMENTS_LARAVEL_CLIENT_ID', $output);
+        self::assertSame("NUXT_PAYMENTS_LARAVEL_CLIENT_ID=old-bff\nNUXT_PAYMENTS_CLIENT_ID=other-bff\n", file_get_contents($front));
+    }
+
+    public function test_command_keeps_a_configured_partner_identity(): void
+    {
+        $front = $this->root.'/front.env';
+        $this->app['config']->set('payments.setup.partner', 'shop-bff');
+        [$code, $output] = $this->command(['--frontend-env' => $front]);
+        self::assertSame(0, $code, $output);
+        self::assertSame('shop-bff', (new EnvFile($front))->read()['NUXT_PAYMENTS_CLIENT_ID']);
+    }
 }

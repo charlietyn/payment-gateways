@@ -136,6 +136,114 @@ final class PostgresStore implements PaymentStore
     }
 
     /**
+     * Operator listing (0.10.0). Visibility is decided HERE, in SQL, so a page and its total never
+     * disagree with Operator::sees(): same project/tenant (or a pre-0.10 intent with the explicit
+     * legacy grant) and an account the operator may access. Filters are exact matches on stored
+     * identifiers; the caller validates their shape.
+     *
+     * @param list<string> $accounts
+     * @param array{state?:string,fulfillment?:string,account?:string,reference?:string,subject?:string} $filters
+     * @return array{items: list<array<string, mixed>>, total: int}
+     */
+    public function operatorIntents(string $project, string $tenant, bool $legacy, array $accounts, array $filters, int $limit, int $offset): array
+    {
+        if ($accounts === [] || $limit < 1 || $limit > 100 || $offset < 0) {
+            return ['items' => [], 'total' => 0];
+        }
+        $where = ["i.data->>'account_alias' = ANY(?::text[])", "((i.data->>'project'=? AND i.data->>'tenant'=?)".($legacy ? " OR i.data->>'project' IS NULL" : '').')'];
+        $args = ['{'.implode(',', $accounts).'}', $project, $tenant];
+        foreach (['state' => "i.data->>'state'", 'fulfillment' => "i.data->>'fulfillment'", 'account' => "i.data->>'account_alias'", 'reference' => 'i.reference::text'] as $key => $column) {
+            if (isset($filters[$key])) {
+                $where[] = "{$column}=?";
+                $args[] = $filters[$key];
+            }
+        }
+        if (isset($filters['subject'])) {
+            // A retry attempt is stored as `<subject>#<n>`; operators search by the subject they know.
+            $where[] = "(i.subject=? OR i.subject LIKE ? ESCAPE '\\')";
+            $args[] = $filters['subject'];
+            $args[] = addcslashes($filters['subject'], '%_\\').'#%';
+        }
+        $condition = implode(' AND ', $where);
+        $total = (int) $this->query("SELECT count(*) FROM {$this->tables['intents']} i WHERE {$condition}", $args)->fetchColumn();
+        $rows = $this->query("SELECT i.data, (o.data->>'created_at')::bigint AS created_at FROM {$this->tables['intents']} i
+            LEFT JOIN {$this->tables['operations']} o ON o.intent_reference=i.reference AND o.kind='create'
+            WHERE {$condition} ORDER BY i.id DESC LIMIT {$limit} OFFSET {$offset}", $args)->fetchAll(PDO::FETCH_ASSOC);
+        return ['items' => array_values(array_map(fn (array $row): array => $this->decode($row['data']) + ['created_at' => $row['created_at'] === null ? null : (int) $row['created_at']], $rows)), 'total' => $total];
+    }
+
+    /**
+     * Everything an operator detail shows about one intent, as identifiers and states only: no request
+     * keys, remote keys, provider bodies or personal data.
+     *
+     * @param array<string, mixed> $intent
+     * @return array{operations: list<array<string, mixed>>, refunds: list<array<string, mixed>>, outbox: list<array<string, mixed>>, reconciliation: array<string, mixed>|null, inbox: list<array<string, mixed>>}
+     */
+    public function operatorTimeline(array $intent): array
+    {
+        $reference = $intent['reference'];
+        $operations = array_map(
+            fn (array $row): array => ['reference' => $row['reference'], 'kind' => $row['kind'], 'state' => $row['state'], 'createdAt' => $row['created_at'] === null ? null : (int) $row['created_at']],
+            $this->query("SELECT reference, kind, data->>'state' AS state, (data->>'created_at')::bigint AS created_at FROM {$this->tables['operations']} WHERE intent_reference=? ORDER BY id", [$reference])->fetchAll(PDO::FETCH_ASSOC)
+        );
+        $refunds = array_map(
+            fn (array $row): array => ['reference' => $row['reference'], 'state' => $row['state'], 'minor' => (int) $row['minor'], 'currency' => $row['currency'], 'byOperator' => str_starts_with($row['request_key'], 'operator:'), 'compensation' => str_starts_with($row['request_key'], 'compensation:')],
+            $this->query("SELECT reference, state, minor, currency, request_key FROM {$this->tables['refunds']} WHERE intent_reference=? ORDER BY reference", [$reference])->fetchAll(PDO::FETCH_ASSOC)
+        );
+        $outbox = array_map(
+            fn (array $row): array => ['type' => $row['type'], 'delivered' => $row['delivered_at'] !== null, 'attempts' => (int) $row['attempts'], 'createdAt' => $row['created_at']],
+            $this->query("SELECT type, delivered_at, attempts, created_at FROM {$this->tables['outbox']} WHERE intent_reference=? ORDER BY created_at", [$reference])->fetchAll(PDO::FETCH_ASSOC)
+        );
+        $reconciliation = $this->query("SELECT reconcile_attempts AS attempts, reconcile_due AS due, (reconcile_until IS NOT NULL AND reconcile_until>clock_timestamp()) AS leased FROM {$this->tables['reconciliation']} WHERE reference=?", [$reference])->fetch(PDO::FETCH_ASSOC) ?: null;
+        $inbox = $intent['provider_id'] === null ? [] : array_map(
+            fn (array $row): array => ['state' => $row['state'], 'attempts' => (int) $row['attempts']],
+            $this->query("SELECT state, attempts FROM {$this->tables['inbox']} WHERE account_identity=? AND resource_id=? ORDER BY id", [$intent['account_identity'], $intent['provider_id']])->fetchAll(PDO::FETCH_ASSOC)
+        );
+        if ($reconciliation !== null) {
+            $reconciliation = ['attempts' => (int) $reconciliation['attempts'], 'due' => $reconciliation['due'], 'leased' => (bool) $reconciliation['leased']];
+        }
+        return ['operations' => array_values($operations), 'refunds' => array_values($refunds), 'outbox' => array_values($outbox), 'reconciliation' => $reconciliation, 'inbox' => array_values($inbox)];
+    }
+
+    /** Money reserved by refunds that are not final yet; it is not refundable again. */
+    public function reservedRefundMinor(string $intentReference): int
+    {
+        return (int) $this->query("SELECT COALESCE(sum(minor),0) FROM {$this->tables['refunds']} WHERE intent_reference=? AND state IN ('PREPARED','SENDING','UNKNOWN','PENDING','CONFIRMED')", [$intentReference])->fetchColumn();
+    }
+
+    /** Whether the background reconciliation still has something to observe for this intent. */
+    public function reconciliationPending(string $reference): bool
+    {
+        return (bool) $this->query("SELECT 1 FROM {$this->tables['intents']} i JOIN {$this->tables['reconciliation']} r USING(reference) WHERE i.reference=? AND {$this->reconciliationPendingPredicate()}", [$reference])->fetchColumn();
+    }
+
+    /**
+     * Brings a PENDING reconciliation forward (0.10.0). It never resets attempts: an exhausted item
+     * stays exhausted and needs the reviewed replay (actor + evidence), not a button.
+     *
+     * @return 'scheduled'|'exhausted'|'not_pending'|'leased'
+     */
+    public function requestReconciliation(string $reference): string
+    {
+        return $this->transaction(function () use ($reference): string {
+            $row = $this->query("SELECT r.reconcile_attempts, (r.reconcile_until IS NOT NULL AND r.reconcile_until>clock_timestamp()) AS leased
+                FROM {$this->tables['reconciliation']} r JOIN {$this->tables['intents']} i ON i.reference=r.reference
+                WHERE r.reference=? AND {$this->reconciliationPendingPredicate()} FOR UPDATE OF r", [$reference])->fetch(PDO::FETCH_ASSOC);
+            if (!$row) {
+                return 'not_pending';
+            }
+            if ((int) $row['reconcile_attempts'] >= 8) {
+                return 'exhausted';
+            }
+            if ($row['leased']) {
+                return 'leased';
+            }
+            $this->query("UPDATE {$this->tables['reconciliation']} SET reconcile_due=clock_timestamp() WHERE reference=?", [$reference]);
+            return 'scheduled';
+        });
+    }
+
+    /**
      * Known case IDs only. Never discover a dispute by matching aggregate money.
      *
      * @return list<string>

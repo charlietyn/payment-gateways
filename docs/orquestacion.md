@@ -135,6 +135,36 @@ Fuera de Laravel, pasa tu propio `FailureReporter` como último argumento de `Co
 Ninguna salida lleva payloads, cuerpos del proveedor, credenciales ni datos personales. No escribas
 datos de clientes ni secretos en las referencias.
 
+## Back office (0.10.0)
+
+`Orchestration\Laravel\AdminController` es la API de operador. Se monta en el canal autenticado del
+backoffice del proyecto (`index`, `show`, `refund`, `refundShow`, `reconcile`) y exige
+`config('payments.admin.operator')`: una clase del proyecto que implementa `OperatorAdapter` y
+devuelve un `Operator` (proyecto, tenant, id, cuentas, capacidades `read|refund|recover`,
+`legacyHistory`). Sin ella la API responde `admin_unavailable` (503). El adaptador decide en CADA
+petición; no depende de ningún middleware que pueda estar apagado.
+
+- **Visibilidad**: proyecto + tenant + cuenta accesible; fuera de ella, 404 como una referencia
+  desconocida. Los intents nuevos guardan `project` y `tenant`; los anteriores a 0.10 solo los ve un
+  operador con `legacyHistory`.
+- **`OperatorConsole`**: listado y detalle con estado financiero, de entrega y de compensación por
+  separado, incidencias y acciones efectivas con su motivo (`refunds_disabled`, `not_captured`,
+  `nothing_refundable`, `forbidden`, `recovery_disabled`, `not_pending`, `account_identity_changed`).
+- **Reembolso de operador** (`RefundCoordinator::requestAsOperator`): mismo motor, misma reserva y
+  recuperación que un reembolso del cliente; el pago conserva su scope y la clave queda atribuida
+  (`operator:<auditId>:<clave>`). Nunca se reintenta: un resultado incierto es 202 y lo recupera el
+  worker.
+- **Reconciliar** adelanta una reconciliación pendiente; un elemento agotado sigue exigiendo
+  `payments:run replay-exhausted` con actor y evidencia.
+- No hay CRUD sobre inbox/outbox, edición del estado financiero ni comandos de consola por HTTP.
+- `Events\OperatorActionRecorded` se despacha tras el commit para la auditoría.
+
+`payments:setup` (0.10) se detiene con `account_api_env_conflict:<cuenta>` /
+`account_environment_env_conflict:<cuenta>` si una variable `PAYMENTS_<CUENTA>_API|ENVIRONMENT`
+contradice la identidad configurada, y con `frontend_env_conflict:<canónica>/<mapeada>` si el
+frontend tiene ambos nombres con valores distintos. `payments.setup.partner` fija el código del
+cliente partner (por defecto `<proyecto>-payments`).
+
 ## Tests
 
 ```bash

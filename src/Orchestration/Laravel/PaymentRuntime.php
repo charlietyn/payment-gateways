@@ -104,6 +104,33 @@ final class PaymentRuntime
         // New refund writes need an explicit consumer decision; reads and recovery never do.
         return new RefundCoordinator($this->store(), $this->accounts(), new GatewayRefundEvidenceReader(), ($this->configuration['refunds_enabled'] ?? false) === true, $this->failures());
     }
+    /** Back office (0.10.0): fails closed when the project did not configure who its operators are. */
+    public function operators(): OperatorAdapter
+    {
+        $class = $this->configuration['admin']['operator'] ?? null;
+        if (!is_string($class) || !is_subclass_of($class, OperatorAdapter::class)) {
+            throw new PaymentError('admin_unavailable', 503);
+        }
+        return $this->container->make($class);
+    }
+
+    public function console(): \Ronu\PaymentGateways\Orchestration\OperatorConsole
+    {
+        return new \Ronu\PaymentGateways\Orchestration\OperatorConsole($this->store(), $this->accounts(), ($this->configuration['refunds_enabled'] ?? false) === true, ($this->configuration['recovery_enabled'] ?? false) === true);
+    }
+
+    /** Dispatches after the work committed; a listener failure never changes the answer. */
+    public function recordOperatorAction(Events\OperatorActionRecorded $event): void
+    {
+        try {
+            $events = $this->container->bound('events') ? $this->container->make('events') : null;
+            if ($events instanceof Dispatcher) {
+                $events->dispatch($event);
+            }
+        } catch (\Throwable) {
+        }
+    }
+
     public function compensations(): \Ronu\PaymentGateways\Orchestration\CompensationCoordinator
     {
         $adapter = $this->adapter();

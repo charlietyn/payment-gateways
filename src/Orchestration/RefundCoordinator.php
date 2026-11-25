@@ -26,6 +26,52 @@ final class RefundCoordinator
     }
 
     /**
+     * Back-office refund (0.10.0). The operator is authorized on the payment's project/tenant and
+     * account, never by impersonating the buyer: the refund belongs to the intent exactly as a buyer
+     * or partner refund does, and recovery, balance and notifications are the same. The idempotency
+     * key is namespaced with the operator's audit id, which is also the durable attribution.
+     *
+     * @return array<string, mixed>
+     */
+    public function requestAsOperator(Operator $operator, string $intentReference, Money $amount, string $key): array
+    {
+        if (!preg_match('/^[A-Za-z0-9_.:-]{1,96}$/D', $key)) {
+            throw new PaymentError('invalid_idempotency_key', 422);
+        }
+        $intent = $this->operatorIntent($operator, $intentReference, 'refund');
+        $refund = $this->send($intent, $amount, 'operator:'.$operator->auditId().':'.$key);
+        return $this->viewForOperator($operator, $refund['reference']);
+    }
+
+    /** @return array<string, mixed> */
+    public function viewForOperator(Operator $operator, string $reference): array
+    {
+        $refund = $this->store->refundOperation($reference) ?? throw new PaymentError('not_found', 404);
+        $this->operatorIntent($operator, $refund['intent_reference'], 'read');
+        return ['operationReference' => $refund['reference'], 'reference' => $refund['intent_reference'],
+            'operationState' => $refund['state'], 'amount' => (new Money((int) $refund['minor'], $refund['currency']))->toDecimal(),
+            'currency' => $refund['currency'], 'httpStatus' => $refund['state'] === 'COMPLETED' ? 200 : 202];
+    }
+
+    /** Whether new refund commands are accepted at all (declaration + runtime switch). */
+    public function acceptsNew(): bool
+    {
+        return $this->acceptNew;
+    }
+
+    /** @return array<string, mixed> */
+    private function operatorIntent(Operator $operator, string $reference, string $capability): array
+    {
+        $intent = $this->store->intent($reference);
+        // Another tenant's payment and an unknown reference answer the same.
+        if ($intent === null || !$operator->sees($intent)) {
+            throw new PaymentError('not_found', 404);
+        }
+        $operator->require($capability, $intent['account_alias']);
+        return $intent;
+    }
+
+    /**
      * Trusted product/worker port, never an HTTP action. The durable rejection authorizes compensation.
      *
      * @return array<string, mixed>

@@ -64,7 +64,9 @@ final class Coordinator
             }
             $attempt = $this->attemptSubject($actor, $quote);
             $intent = [
-                'reference' => CanonicalJson::uuid(), 'scope' => $actor->scope(), 'subject' => $attempt, 'quote_revision' => $quote->revision,
+                // project/tenant (0.10.0) let operators find a payment without ever owning its scope.
+                'reference' => CanonicalJson::uuid(), 'scope' => $actor->scope(), 'project' => $actor->project, 'tenant' => $actor->tenant,
+                'subject' => $attempt, 'quote_revision' => $quote->revision,
                 'account_alias' => $account->alias, 'account_identity' => $account->identity(), 'configuration_version' => $account->configurationVersion,
                 'currency' => $quote->amount->currency, 'amount_minor' => (string) $quote->amount->minor,
                 'state' => 'created', 'fulfillment' => 'pending', 'captured_minor' => '0', 'refunded_minor' => '0',
