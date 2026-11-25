@@ -127,7 +127,7 @@ final class PaymentController
     private static function operationLocation(Request $request, string $reference): ?string
     {
         try {
-            $served = $request->route()->getName();
+            $served = $request->route()?->getName();
             if (!is_string($served) || !preg_match('/^(.*)payments\.[a-z]+\.[a-z]+$/D', $served, $match)) {
                 return null;
             }
