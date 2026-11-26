@@ -165,6 +165,14 @@ contradice la identidad configurada, y con `frontend_env_conflict:<canónica>/<m
 frontend tiene ambos nombres con valores distintos. `payments.setup.partner` fija el código del
 cliente partner (por defecto `<proyecto>-payments`).
 
+`payments.setup.frontend` renombra las variables para el front PROPIO del proyecto. Desde
+0.10.0-alpha.2 el `.env` que recibe `--frontend-env` decide: si declara los nombres canónicos
+(`NUXT_PAYMENTS_API_BASE_URL`, `_CLIENT_ID`, `_API_KEY`, aunque estén vacíos) y ninguno de los
+mapeados, se escriben los canónicos y el informe dice `front_declares_canonical_names`; en cualquier
+otro caso (declara los mapeados, o aún no declara nada) se usa el mapeo (`project_mapping_in_use`).
+Así un mismo backend configura su front propio y uno generado con el `.env.example` estándar sin
+escribir el secreto dos veces.
+
 ## Tests
 
 ```bash

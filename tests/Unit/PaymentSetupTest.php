@@ -584,6 +584,53 @@ final class PaymentSetupTest extends TestCase
         self::assertSame("NUXT_PAYMENTS_LARAVEL_CLIENT_ID=old-bff\nNUXT_PAYMENTS_CLIENT_ID=other-bff\n", file_get_contents($front));
     }
 
+    public function test_a_front_declaring_the_canonical_names_gets_them_despite_a_project_mapping(): void
+    {
+        $front = $this->root.'/front.env';
+        file_put_contents($front, "NUXT_PAYMENTS_API_BASE_URL=\nNUXT_PAYMENTS_CLIENT_ID=\nNUXT_PAYMENTS_API_KEY=\n");
+        $this->app['config']->set('payments.setup.frontend', [
+            'base_url' => 'NUXT_PAYMENTS_LARAVEL_BASE_URL',
+            'client_id' => 'NUXT_PAYMENTS_LARAVEL_CLIENT_ID',
+            'api_key' => 'NUXT_PAYMENTS_LARAVEL_API_KEY',
+        ]);
+        [$code, $output] = $this->command(['--frontend-env' => $front]);
+        self::assertSame(0, $code, $output);
+        self::assertStringContainsString('front_declares_canonical_names', $output);
+        $values = (new EnvFile($front))->read();
+        self::assertNotSame('', $values['NUXT_PAYMENTS_CLIENT_ID']);
+        self::assertNotSame('', $values['NUXT_PAYMENTS_API_KEY']);
+        self::assertNotSame('', $values['NUXT_PAYMENTS_API_BASE_URL']);
+        self::assertArrayNotHasKey('NUXT_PAYMENTS_LARAVEL_CLIENT_ID', $values);
+        self::assertArrayNotHasKey('NUXT_PAYMENTS_LARAVEL_API_KEY', $values);
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function frontsOfTheProjectItself(): iterable
+    {
+        yield 'front declaring the mapped names' => ["NUXT_PAYMENTS_LARAVEL_CLIENT_ID=\nNUXT_PAYMENTS_LARAVEL_API_KEY=\n"];
+        yield 'front declaring nothing yet' => [''];
+        yield 'front declaring both, one empty' => ["NUXT_PAYMENTS_LARAVEL_CLIENT_ID=\nNUXT_PAYMENTS_CLIENT_ID=\n"];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('frontsOfTheProjectItself')]
+    public function test_the_project_mapping_still_names_its_own_front(string $contents): void
+    {
+        $front = $this->root.'/front.env';
+        file_put_contents($front, $contents);
+        $this->app['config']->set('payments.setup.frontend', [
+            'client_id' => 'NUXT_PAYMENTS_LARAVEL_CLIENT_ID',
+            'api_key' => 'NUXT_PAYMENTS_LARAVEL_API_KEY',
+        ]);
+        [$code, $output] = $this->command(['--frontend-env' => $front]);
+        self::assertSame(0, $code, $output);
+        self::assertStringContainsString('project_mapping_in_use', $output);
+        $values = (new EnvFile($front))->read();
+        self::assertNotSame('', $values['NUXT_PAYMENTS_LARAVEL_CLIENT_ID']);
+        self::assertNotSame('', $values['NUXT_PAYMENTS_LARAVEL_API_KEY']);
+        self::assertSame('', $values['NUXT_PAYMENTS_CLIENT_ID'] ?? '');
+        self::assertArrayNotHasKey('NUXT_PAYMENTS_API_KEY', $values);
+    }
+
     public function test_command_keeps_a_configured_partner_identity(): void
     {
         $front = $this->root.'/front.env';

@@ -224,7 +224,16 @@ final class PaymentSetupCommand extends Command
                     throw new SetupFailure('frontend_env_conflict:'.$canonicalName.'/'.$mapped);
                 }
             }
-            if ($frontMapping !== array_replace($frontMapping, $canonicalFront) && $frontend !== null) {
+            // A project mapping names the variables of the project's OWN front. The front being configured
+            // says which names it reads: one whose file declares the canonical names and none of the mapped
+            // ones (a front generated with the canonical .env.example) gets the canonical names (0.10.0-alpha.2).
+            $ownNames = array_diff_assoc(array_intersect_key($frontMapping, $canonicalFront), $canonicalFront);
+            $declares = static fn (array $names): bool => array_intersect_key($frontValues, array_flip($names)) !== [];
+            if ($frontend !== null && $ownNames !== [] && !$declares(array_values($ownNames))
+                && $declares(array_values(array_intersect_key($canonicalFront, $ownNames)))) {
+                $frontMapping = array_replace($frontMapping, $canonicalFront);
+                $report->add('frontend-names', 'unchanged', 'front_declares_canonical_names');
+            } elseif ($ownNames !== [] && $frontend !== null) {
                 $report->add('frontend-names', 'unchanged', 'project_mapping_in_use');
             }
             if ($frontend !== null && !$dryRun) {

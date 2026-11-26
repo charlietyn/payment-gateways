@@ -6,6 +6,15 @@ romper la API, y aquí se dice cómo.
 
 ## [Sin publicar]
 
+## [0.10.0-alpha.2] — 2026-11-26
+
+### Cambiado
+
+- **`payments:setup --frontend-env`**: el mapeo `payments.setup.frontend` se aplica solo al front que
+  lo usa. Un `.env` que declara los nombres canónicos y ninguno de los mapeados recibe los canónicos
+  (`frontend-names: front_declares_canonical_names`); antes recibía los mapeados, que ese front no lee,
+  y quedaba sin cliente partner ni clave. Un front que declara los mapeados, o ninguno, no cambia.
+
 ## [0.10.0-alpha.1] — 2026-11-25
 
 ### Añadido
